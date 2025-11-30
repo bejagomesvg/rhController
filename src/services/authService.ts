@@ -65,7 +65,8 @@ export async function fetchUserByUsername(username: string): Promise<UserRegistr
   ensureEnv()
   const query = new URL(`${supabaseUrl}/rest/v1/user_registration`)
   query.searchParams.set('username', `eq.${username}`)
-  query.searchParams.set('select', 'id,username,password,is_authorized,type_user,name')
+  // Seleciona todos os campos para permitir flags de módulos
+  query.searchParams.set('select', '*')
   query.searchParams.set('limit', '1')
 
   const response = await fetch(query.toString(), {

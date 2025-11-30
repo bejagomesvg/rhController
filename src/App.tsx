@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { AlertTriangle, Check, Loader2, LockKeyhole, ShieldUser, UserRound } from 'lucide-react'
-import Dashboard from './modules'
+import Dashboard from './views/Dashboard'
 import './style.css'
 import type { UserRegistration } from './models/user'
 import {
@@ -34,6 +34,23 @@ export function App(): ReactElement {
   const [currentUser, setCurrentUser] = useState<UserRegistration | null>(savedSession)
   const isSetPassword = mode === 'set-password'
   const isDashboard = mode === 'dashboard'
+  const allowedModules = currentUser
+    ? {
+        recruitment: currentUser.recruitment,
+        payroll: currentUser.payroll,
+        training: currentUser.training,
+        shift_schedule_and_vacation: currentUser.shift_schedule_and_vacation,
+        evaluation: currentUser.evaluation,
+        communication: currentUser.communication,
+        health_and_safety: currentUser.health_and_safety,
+        benefits: currentUser.benefits,
+        development: currentUser.development,
+        infrastructure: currentUser.infrastructure,
+        security: currentUser.security,
+        database: currentUser.database,
+        table_load: currentUser.table_load,
+      }
+    : undefined
 
   function resetFeedback() {
     setFeedback({ type: null, message: '' })
@@ -200,6 +217,24 @@ export function App(): ReactElement {
     }, 5000)
     return () => window.clearTimeout(timer)
   }, [feedback.message])
+
+  // Atualiza permissões/módulos periodicamente enquanto logado.
+  useEffect(() => {
+    if (!currentUser?.username) return
+    const interval = window.setInterval(async () => {
+      try {
+        const freshUser = await fetchUserByUsername(currentUser.username)
+        if (freshUser) {
+          setCurrentUser(freshUser)
+          saveSession(freshUser)
+        }
+      } catch (error) {
+        console.error('Erro ao atualizar permissões do usuário:', error)
+      }
+    }, 20000)
+
+    return () => window.clearInterval(interval)
+  }, [currentUser?.username])
 
   const cardRing = isSetPassword || isDashboard ? 'ring-emerald-200/10' : 'ring-rose-200/10'
   const cardMaxWidth = isDashboard ? 'max-w-5xl' : 'max-w-md'
@@ -471,6 +506,7 @@ export function App(): ReactElement {
                 onLogout={handleLogout}
                 userName={currentUser?.name || currentUser?.username || 'Usuário'}
                 userRole={currentUser?.type_user || 'Perfil não informado'}
+                allowedModules={allowedModules}
               />
 
               {feedback.message && (

@@ -16,58 +16,73 @@ import {
   Gift,
   Table,
 } from 'lucide-react'
+import type { ModuleKey } from '../models/user'
 
 interface DashboardProps {
   onLogout: () => void
   userName?: string
   userRole?: string
+  allowedModules?: Partial<Record<ModuleKey, string | boolean>>
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ onLogout, userName = 'Usuário', userRole = 'Perfil não informado' }) => {
+const Dashboard: React.FC<DashboardProps> = ({
+  onLogout,
+  userName = 'Usuário',
+  userRole = 'Perfil não informado',
+  allowedModules,
+}) => {
   const hrCards = [
     {
+      key: 'recruitment' as const,
       title: 'Recrutamento',
       description: 'Gestão de talentos e novas contratações',
       icon: <Users className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-pink-500 to-rose-600',
     },
     {
+      key: 'payroll' as const,
       title: 'Folha de Pagamento',
       description: 'Controle salarial e benefícios',
       icon: <FileText className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-purple-500 to-indigo-600',
     },
     {
+      key: 'training' as const,
       title: 'Treinamento',
       description: 'Desenvolvimento e cursos corporativos',
       icon: <Award className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-orange-400 to-red-500',
     },
     {
+      key: 'shift_schedule_and_vacation' as const,
       title: 'Escalas & Férias',
       description: 'Gestão de tempo e ausências',
       icon: <Calendar className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-yellow-400 to-orange-500',
     },
     {
+      key: 'evaluation' as const,
       title: 'Avaliação',
       description: 'Análise de desempenho individual',
       icon: <TrendingUp className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-teal-400 to-emerald-600',
     },
     {
+      key: 'communication' as const,
       title: 'Comunicação',
       description: 'Mural e comunicados internos',
       icon: <MessageCircle className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-blue-400 to-cyan-600',
     },
     {
+      key: 'health_and_safety' as const,
       title: 'Saúde e Segurança',
       description: 'Medicina e segurança do trabalho',
       icon: <HeartPulse className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-red-400 to-pink-600',
     },
     {
+      key: 'benefits' as const,
       title: 'Benefícios',
       description: 'Vale transporte, alimentação e saúde',
       icon: <Gift className="w-5 h-5 text-white" />,
@@ -77,36 +92,46 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, userName = 'Usuário', 
 
   const techCards = [
     {
+      key: 'infrastructure' as const,
       title: 'Infraestrutura',
       description: 'Monitoramento de servidores e redes',
       icon: <Server className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-cyan-500 to-blue-600',
     },
     {
+      key: 'security' as const,
       title: 'Segurança',
       description: 'Controle de acesso e firewall',
       icon: <ShieldCheck className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-emerald-400 to-green-600',
     },
     {
+      key: 'development' as const,
       title: 'Desenvolvimento',
       description: 'Repositórios e code review',
       icon: <Code2 className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-violet-500 to-fuchsia-600',
     },
     {
+      key: 'database' as const,
       title: 'Banco de Dados',
       description: 'Gestão de dados e backups',
       icon: <Database className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-blue-400 to-indigo-500',
     },
     {
+      key: 'table_load' as const,
       title: 'Carga de Tabelas',
       description: 'Importação massiva e ETL',
       icon: <Table className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-slate-500 to-gray-700',
     },
   ]
+
+  const isAllowed = (key: ModuleKey) => !allowedModules || Boolean(allowedModules[key])
+
+  const visibleHrCards = hrCards.filter((card) => isAllowed(card.key))
+  const visibleTechCards = techCards.filter((card) => isAllowed(card.key))
 
   return (
     <div className="space-y-6">
@@ -122,7 +147,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, userName = 'Usuário', 
 
         <div className="flex items-center gap-3 bg-white/10 border border-white/15 px-4 py-3 rounded-xl shadow-inner shadow-black/20">
           <div>
-            <p className="text-white font-semibold leading-tight">{userName}</p>
+            <p className="text-emerald-300 font-semibold leading-tight">{userName}</p>
             <p className="text-white/60 text-[11px] uppercase tracking-[0.25em]">{userRole}</p>
           </div>
           <button
@@ -144,7 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, userName = 'Usuário', 
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {hrCards.map((card) => (
+          {visibleHrCards.map((card) => (
             <div
               key={card.title}
               className={`${card.color} w-full rounded-md p-2 shadow-md shadow-black/30 transform hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 cursor-pointer group`}
@@ -172,7 +197,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, userName = 'Usuário', 
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {techCards.map((card) => (
+          {visibleTechCards.map((card) => (
             <div
               key={card.title}
               className={`${card.color} w-full rounded-md p-2 shadow-md shadow-black/30 transform hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 cursor-pointer group`}

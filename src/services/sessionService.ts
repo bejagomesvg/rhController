@@ -17,17 +17,7 @@ export function loadSession(): UserRegistration | null {
 export function saveSession(user: UserRegistration) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(
-      SESSION_KEY,
-      JSON.stringify({
-        id: user.id,
-        username: user.username,
-        type_user: user.type_user,
-        name: user.name,
-        is_authorized: user.is_authorized,
-        password: user.password,
-      }),
-    )
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...user }))
   } catch (error) {
     console.error('Erro ao salvar sessão local:', error)
   }
