@@ -11,6 +11,7 @@ import {
   Search,
   Trash2,
   UserPlus,
+  X,
 } from 'lucide-react'
 import { hashPasswordPBKDF2, updatePassword } from '../services/authService'
 import { loadSession } from '../services/sessionService'
@@ -75,16 +76,22 @@ const Security: React.FC<SecurityProps> = ({
   const [showCreate, setShowCreate] = useState(false)
   const [createFeedback, setCreateFeedback] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
+  const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
+  const sectorOptions = ['TODOS', 'ABATE', 'RH', 'CONTR QUALIDADE', 'DESOSSA', 'ADMINISTRATIVO', 'MIUDO']
+  const [sectorSelection, setSectorSelection] = useState('')
   const [newUser, setNewUser] = useState({
     name: '',
     username: '',
     type_user: 'Usuario',
     job_title: '',
     allowed_sector: '',
+    date_registration: todayIso,
     is_authorized: true,
+    authorizedSector: '',
+    modules: '',
+    authorizedModules: '',
     security: [] as string[],
   })
-
   useEffect(() => {
     const fetchUsers = async () => {
       if (!supabaseUrl || !supabaseKey) return
@@ -251,9 +258,13 @@ const Security: React.FC<SecurityProps> = ({
         type_user: 'Usuario',
         job_title: '',
         allowed_sector: '',
+        authorizedSector: '',
         is_authorized: true,
         security: [],
+        modules: '',
+        authorizedModules: '',
       })
+      setSectorSelection('')
     } catch (error) {
       console.error('Erro ao criar usuario:', error)
       setCreateFeedback('Nao foi possivel criar o usuario.')
@@ -361,49 +372,51 @@ const Security: React.FC<SecurityProps> = ({
       )}
 
       <div className="space-y-3">
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex-1 flex items-center bg-white/10 border border-white/15 rounded-lg px-3 py-2 text-white">
-            <Search className="w-4 h-4 text-white/70 mr-2" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por nome..."
-              className="flex-1 bg-transparent border-none outline-none placeholder:text-white/50 text-sm text-white"
-            />
-          </div>
-          <select
-            value={profileFilter}
-            onChange={(e) => setProfileFilter(e.target.value)}
-            className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 py-2 outline-none"
-          >
-            <option value="todos">Todos os perfis</option>
-            <option value="usuario">Usuario</option>
-            <option value="administrador">Administrador</option>
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 py-2 outline-none"
-          >
-            <option value="todos">Todos os status</option>
-            <option value="ativos">Ativos</option>
-            <option value="inativos">Inativos</option>
-          </select>
-          {canCreate && (
-            <button
-              className="flex items-center gap-2 text-yellow-600 bg-white/10 border border-yellow-400 px-3 py-2 rounded-lg hover:bg-amber-500/20 hover:border-amber-300/40 transition-colors text-xs font-semibold uppercase tracking-wide"
-              title="Criar usuario"
-              onClick={() => {
-                setShowCreate(true)
-                setCreateFeedback(null)
-              }}
+        {!showCreate && (
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="flex-1 flex items-center bg-white/10 border border-white/15 rounded-lg px-3 py-2 text-white">
+              <Search className="w-4 h-4 text-white/70 mr-2" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar por nome..."
+                className="flex-1 bg-transparent border-none outline-none placeholder:text-white/50 text-sm text-white"
+              />
+            </div>
+            <select
+              value={profileFilter}
+              onChange={(e) => setProfileFilter(e.target.value)}
+              className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 py-2 outline-none"
             >
-              <UserPlus className="w-5 h-5" />
-              Criar
-            </button>
-          )}
-        </div>
+              <option value="todos">Todos os perfis</option>
+              <option value="usuario">Usuario</option>
+              <option value="administrador">Administrador</option>
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 py-2 outline-none"
+            >
+              <option value="todos">Todos os status</option>
+              <option value="ativos">Ativos</option>
+              <option value="inativos">Inativos</option>
+            </select>
+            {canCreate && (
+              <button
+                className="flex items-center gap-2 text-yellow-600 bg-white/10 border border-yellow-400 px-3 py-2 rounded-lg hover:bg-amber-500/20 hover:border-amber-300/40 transition-colors text-xs font-semibold uppercase tracking-wide"
+                title="Criar usuario"
+                onClick={() => {
+                  setShowCreate(true)
+                  setCreateFeedback(null)
+                }}
+              >
+                <UserPlus className="w-5 h-5" />
+                Criar
+              </button>
+            )}
+          </div>
+        )}
 
         {!showCreate ? (
           <div className="bg-white/5 border border-white/10 rounded-lg p-0 shadow-inner shadow-black/30 overflow-hidden">
@@ -531,9 +544,24 @@ const Security: React.FC<SecurityProps> = ({
           </div>
         ) : (
           <div className="bg-white/5 border border-white/10 rounded-lg p-4 shadow-inner shadow-black/30">
-            <h3 className="text-white text-lg font-semibold mb-4">Novo usuario</h3>
-            <form className="grid grid-cols-1 md:grid-cols-2 gap-3" onSubmit={handleCreateSubmit}>
-              <div className="col-span-1 md:col-span-2">
+            <div className="-mx-4 -mt-4 px-4 py-2 bg-slate-900 rounded-t-lg border-b border-white/10 flex items-center justify-between">
+              <span className="text-white font-semibold text-sm">
+                FICHAS - Cadastro de {newUser.name || 'Usuario'}
+              </span>
+              <button
+                type="button"
+                className="p-2 rounded-md bg-white/5 border border-white/10 text-white/80 hover:bg-rose-500/20 hover:border-rose-400/60 hover:text-rose-200 transition-colors"
+                title="Fechar ficha"
+                onClick={() => {
+                  setShowCreate(false)
+                  setCreateFeedback(null)
+                }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-4 -mt-4" onSubmit={handleCreateSubmit}>
+              <div className="col-span-1 md:col-span-8">
                 <label className="text-white/80 text-sm mb-1 block">Nome completo</label>
                 <input
                   className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
@@ -542,7 +570,7 @@ const Security: React.FC<SecurityProps> = ({
                   required
                 />
               </div>
-              <div>
+              <div className="md:col-span-4">
                 <label className="text-white/80 text-sm mb-1 block">Usuario</label>
                 <input
                   className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
@@ -551,7 +579,15 @@ const Security: React.FC<SecurityProps> = ({
                   required
                 />
               </div>
-              <div>
+              <div className="md:col-span-6">
+                <label className="text-white/80 text-sm mb-1 block">Cargo</label>
+                <input
+                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
+                  value={newUser.job_title}
+                  onChange={(e) => setNewUser({ ...newUser, job_title: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-4">
                 <label className="text-white/80 text-sm mb-1 block">Perfil</label>
                 <select
                   className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
@@ -562,37 +598,75 @@ const Security: React.FC<SecurityProps> = ({
                   <option value="Administrador">Administrador</option>
                 </select>
               </div>
-              <div>
-                <label className="text-white/80 text-sm mb-1 block">Cargo</label>
-                <input
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.job_title}
-                  onChange={(e) => setNewUser({ ...newUser, job_title: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-white/80 text-sm mb-1 block">Setor</label>
-                <input
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.allowed_sector}
-                  onChange={(e) => setNewUser({ ...newUser, allowed_sector: e.target.value })}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  id="authorized"
-                  type="checkbox"
-                  className="w-4 h-4"
-                  checked={newUser.is_authorized}
-                  onChange={(e) => setNewUser({ ...newUser, is_authorized: e.target.checked })}
-                />
-                <label htmlFor="authorized" className="text-white/80 text-sm">
-                  Ativo
-                </label>
-              </div>
               <div className="md:col-span-2">
-                <p className="text-white/80 text-sm mb-2">Permissoes (Security)</p>
-                <div className="flex flex-wrap gap-3">
+                <label className="text-white/80 text-sm mb-1 block">Data de Registro</label>
+                <input
+                  type="date"
+                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
+                  value={newUser.date_registration}
+                  readOnly
+                />
+              </div>
+              <div className="md:col-span-4">
+                <label className="text-white/80 text-sm mb-1 block">Setor</label>
+                <select
+                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
+                  value={sectorSelection}
+                  onChange={(e) => {
+                    const selected = e.target.value
+                    if (!selected) return
+                    const current = newUser.authorizedSector
+                      ? newUser.authorizedSector.split(',').map((s) => s.trim()).filter(Boolean)
+                      : []
+                    if (current.includes(selected)) {
+                    setSectorSelection('')
+                    return
+                  }
+                  const nextList = [...current, selected]
+                  const csv = nextList.join(', ')
+                    setNewUser({ ...newUser, allowed_sector: csv, authorizedSector: csv })
+                    setSectorSelection('')
+                  }}
+                >
+                  <option value="" hidden>
+                    --
+                  </option>
+                  {sectorOptions.map((opt) => {
+                    const current = newUser.authorizedSector
+                      ? newUser.authorizedSector.split(',').map((s) => s.trim()).filter(Boolean)
+                      : []
+                    return (
+                      <option key={opt} value={opt} disabled={current.includes(opt)}>
+                        {opt}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+              <div className="md:col-span-8">
+                <label className="text-white/80 text-sm mb-1 block">Setor Autorizado</label>
+                <textarea
+                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none resize-y min-h-[38px]"
+                  value={newUser.authorizedSector}
+                  readOnly
+                />
+              </div>
+              <div className="md:col-span-4">
+                <label className="text-white/80 text-sm mb-1 block">Metodos</label>
+                <select
+                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
+                  value={newUser.modules}
+                  onChange={(e) => setNewUser({ ...newUser, modules: e.target.value })}
+                >
+                  <option value="">Selecione</option>
+                  <option value="Metodo A">Metodo A</option>
+                  <option value="Metodo B">Metodo B</option>
+                  <option value="Metodo C">Metodo C</option>
+                </select>
+              </div>
+              <div className="md:col-span-6">
+                <p className="text-white/80 text-sm mb-1 block">Permissoes (Security)</p>
+                <div className="grid grid-cols-6 gap-6">
                   {['CREATER', 'UPDATE', 'DELETE', 'READ', 'PASSWORD'].map((perm) => (
                     <label key={perm} className="flex items-center gap-2 text-white/80 text-sm">
                       <input
@@ -614,6 +688,23 @@ const Security: React.FC<SecurityProps> = ({
                     </label>
                   ))}
                 </div>
+              </div>
+              <div className="md:col-span-2 flex items-end">
+                <button
+                  type="button"
+                  className="w-full px-4 py-2 rounded-md bg-white/10 border border-white/15 text-white hover:bg-emerald-500/20 hover:border-emerald-300/40 transition-colors"
+                  title="Adicionar"
+                >
+                  Adicionar
+                </button>
+              </div>
+              <div className="md:col-span-12">
+                <label className="text-white/80 text-sm mb-1 block">Observações</label>
+                <textarea
+                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none resize-y min-h-[60px]"
+                  value={newUser.authorizedModules}
+                  onChange={(e) => setNewUser({ ...newUser, authorizedModules: e.target.value })}
+                />
               </div>
               {createFeedback && (
                 <div className="md:col-span-2 text-sm text-amber-200 bg-amber-500/10 border border-amber-300/40 rounded-md px-3 py-2">
