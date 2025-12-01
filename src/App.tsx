@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import { AlertTriangle, Check, Loader2, LockKeyhole, ShieldUser, UserRound } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, LockKeyhole, ShieldCheck, ShieldUser, UserRound, ArrowLeft } from 'lucide-react'
 import Dashboard from './views/Dashboard'
 import './style.css'
 import type { UserRegistration } from './models/user'
@@ -14,8 +14,9 @@ import {
   verifyPassword,
 } from './services/authService'
 import { clearSession, loadSession, saveSession } from './services/sessionService'
+import Security from './views/Security'
 
-type Mode = 'login' | 'set-password' | 'dashboard'
+type Mode = 'login' | 'set-password' | 'dashboard' | 'security'
 
 export function App(): ReactElement {
   const [username, setUsername] = useState('')
@@ -28,12 +29,13 @@ export function App(): ReactElement {
     type: null,
     message: '',
   })
+  const [securityCard, setSecurityCard] = useState<{ title: string; description: string; accent?: string } | null>(null)
   const savedSession = loadSession()
   const [mode, setMode] = useState<Mode>(savedSession ? 'dashboard' : 'login')
   const [pendingUser, setPendingUser] = useState<{ id: number; username: string } | null>(null)
   const [currentUser, setCurrentUser] = useState<UserRegistration | null>(savedSession)
   const isSetPassword = mode === 'set-password'
-  const isDashboard = mode === 'dashboard'
+  const isDashboard = mode === 'dashboard' || mode === 'security'
   const allowedModules = currentUser
     ? {
         recruitment: currentUser.recruitment,
@@ -238,6 +240,8 @@ export function App(): ReactElement {
 
   const cardRing = isSetPassword || isDashboard ? 'ring-emerald-200/10' : 'ring-rose-200/10'
   const cardMaxWidth = isDashboard ? 'max-w-5xl' : 'max-w-md'
+  const HeaderIcon = mode === 'security' ? ShieldCheck : ShieldUser
+  const accentColor = securityCard?.accent ?? '#22c55e'
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
@@ -253,13 +257,36 @@ export function App(): ReactElement {
             >
               <span />
             </div>
-            <div className="border-2 border-white/60 rounded-full p-5 backdrop-blur-sm">
-              <ShieldUser
-                className={`w-20 h-20 avatar-beat ${
-                  isSetPassword || isDashboard ? 'text-emerald-400' : 'text-rose-500'
-                }`}
-              />
-            </div>
+            {mode === 'security' ? (
+              <div className="flex items-center gap-0 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMode('dashboard')}
+                  className="w-9 h-9 rounded-full border-2 border-white/60 bg-white/5 flex items-center justify-center shadow-inner shadow-black/30 focus:outline-none transition-colors hover:bg-emerald-500/20 hover:border-emerald-300/40"
+                  title="Voltar para o dashboard"
+                >
+                  <ShieldUser
+                    className={`w-6 h-6 shrink-0 ${isSetPassword || isDashboard ? 'text-emerald-300' : 'text-rose-300'}`}
+                  />
+                </button>
+                <ArrowLeft className="w-5 h-5 -mx-0.5" style={{ color: accentColor }} />
+                <div className="border-2 border-white/60 rounded-full p-5 backdrop-blur-sm">
+                  <HeaderIcon
+                    className={`w-16 h-16 shrink-0 avatar-beat ${
+                      isSetPassword || isDashboard ? 'text-emerald-400' : 'text-rose-500'
+                    }`}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-white/60 rounded-full p-5 backdrop-blur-sm shrink-0">
+                <HeaderIcon
+                  className={`w-16 h-16 shrink-0 avatar-beat ${
+                    isSetPassword || isDashboard ? 'text-emerald-400' : 'text-rose-500'
+                  }`}
+                />
+              </div>
+            )}
             <div
               className={`line-anim right h-px bg-white/35 flex-1 relative overflow-hidden ${
                 isSetPassword || isDashboard ? 'green' : ''
@@ -507,6 +534,10 @@ export function App(): ReactElement {
                 userName={currentUser?.name || currentUser?.username || 'Usuário'}
                 userRole={currentUser?.type_user || 'Perfil não informado'}
                 allowedModules={allowedModules}
+                onOpenSecurity={(module) => {
+                  setSecurityCard(module)
+                  setMode('security')
+                }}
               />
 
               {feedback.message && (
@@ -527,6 +558,18 @@ export function App(): ReactElement {
                   <span className="whitespace-nowrap text-center">{feedback.message}</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {mode === 'security' && (
+            <div className="space-y-1 -mt-10">
+              <Security
+                onBack={() => setMode('dashboard')}
+                userName={currentUser?.name || currentUser?.username || 'Usuario'}
+                userRole={currentUser?.type_user || 'Perfil nao informado'}
+                title={securityCard?.title}
+                description={securityCard?.description}
+              />
             </div>
           )}
 

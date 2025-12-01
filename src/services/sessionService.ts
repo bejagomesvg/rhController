@@ -5,7 +5,7 @@ const SESSION_KEY = 'rhDashboardSession'
 export function loadSession(): UserRegistration | null {
   if (typeof window === 'undefined') return null
   try {
-    const stored = localStorage.getItem(SESSION_KEY)
+    const stored = sessionStorage.getItem(SESSION_KEY)
     if (!stored) return null
     return JSON.parse(stored) as UserRegistration
   } catch (error) {
@@ -17,7 +17,7 @@ export function loadSession(): UserRegistration | null {
 export function saveSession(user: UserRegistration) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...user }))
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ ...user }))
   } catch (error) {
     console.error('Erro ao salvar sessão local:', error)
   }
@@ -26,7 +26,7 @@ export function saveSession(user: UserRegistration) {
 export function clearSession() {
   if (typeof window === 'undefined') return
   try {
-    localStorage.removeItem(SESSION_KEY)
+    sessionStorage.removeItem(SESSION_KEY)
   } catch (error) {
     console.error('Erro ao limpar sessão local:', error)
   }

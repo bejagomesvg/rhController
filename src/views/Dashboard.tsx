@@ -23,6 +23,7 @@ interface DashboardProps {
   userName?: string
   userRole?: string
   allowedModules?: Partial<Record<ModuleKey, string | boolean>>
+  onOpenSecurity?: (module: { title: string; description: string; accent?: string }) => void
 }
 
 const Dashboard: React.FC<DashboardProps> = ({
@@ -30,6 +31,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   userName = 'Usuário',
   userRole = 'Perfil não informado',
   allowedModules,
+  onOpenSecurity,
 }) => {
   const hrCards = [
     {
@@ -103,6 +105,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       title: 'Segurança',
       description: 'Controle de acesso e firewall',
       icon: <ShieldCheck className="w-5 h-5 text-white" />,
+      accent: '#22c55e',
       color: 'bg-gradient-to-br from-emerald-400 to-green-600',
     },
     {
@@ -201,6 +204,16 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div
               key={card.title}
               className={`${card.color} w-full rounded-md p-2 shadow-md shadow-black/30 transform hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 cursor-pointer group`}
+              onClick={
+                card.key === 'security'
+                  ? () =>
+                      onOpenSecurity?.({
+                        title: card.title,
+                        description: card.description,
+                        accent: card.accent,
+                      })
+                  : undefined
+              }
             >
               <div className="flex items-start gap-3">
                 <div className="bg-white/20 w-10 h-10 shrink-0 rounded-full flex items-center justify-center backdrop-blur-sm group-hover:scale-110 transition-transform">
