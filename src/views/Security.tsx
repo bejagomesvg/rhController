@@ -258,6 +258,7 @@ const Security: React.FC<SecurityProps> = ({
         type_user: 'Usuario',
         job_title: '',
         allowed_sector: '',
+        date_registration: todayIso,
         authorizedSector: '',
         is_authorized: true,
         security: [],
@@ -610,7 +611,8 @@ const Security: React.FC<SecurityProps> = ({
               <div className="md:col-span-4">
                 <label className="text-white/80 text-sm mb-1 block">Setor</label>
                 <select
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
+                  className="w-full bg-slate-900/80 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
+                  style={{ backgroundColor: '#0f172a', color: '#e2e8f0' }}
                   value={sectorSelection}
                   onChange={(e) => {
                     const selected = e.target.value
@@ -636,7 +638,7 @@ const Security: React.FC<SecurityProps> = ({
                       ? newUser.authorizedSector.split(',').map((s) => s.trim()).filter(Boolean)
                       : []
                     return (
-                      <option key={opt} value={opt} disabled={current.includes(opt)}>
+                      <option key={opt} value={opt} disabled={current.includes(opt)} className="bg-slate-900 text-white">
                         {opt}
                       </option>
                     )
