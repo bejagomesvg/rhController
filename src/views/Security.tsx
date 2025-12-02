@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { hashPasswordPBKDF2, updatePassword } from '../services/authService'
 import { loadSession } from '../services/sessionService'
+import UserForm from '../components/UserForm'
 
 type SortKey = 'name' | 'type_user' | 'status' | 'role' | 'sector'
 
@@ -77,8 +78,7 @@ const Security: React.FC<SecurityProps> = ({
   const [createFeedback, setCreateFeedback] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
-  const sectorOptions = ['TODOS', 'ABATE', 'RH', 'CONTR QUALIDADE', 'DESOSSA', 'ADMINISTRATIVO', 'MIUDO']
-  const [sectorSelection, setSectorSelection] = useState('')
+  // previously had sectorOptions / sectorSelection here — not used by this view anymore
   const [newUser, setNewUser] = useState({
     name: '',
     username: '',
@@ -265,7 +265,7 @@ const Security: React.FC<SecurityProps> = ({
         modules: '',
         authorizedModules: '',
       })
-      setSectorSelection('')
+      // reset of local sectorSelection no longer needed
     } catch (error) {
       console.error('Erro ao criar usuario:', error)
       setCreateFeedback('Nao foi possivel criar o usuario.')
@@ -546,8 +546,8 @@ const Security: React.FC<SecurityProps> = ({
         ) : (
           <div className="bg-white/5 border border-white/10 rounded-lg p-4 shadow-inner shadow-black/30">
             <div className="-mx-4 -mt-4 px-4 py-2 bg-slate-900 rounded-t-lg border-b border-white/10 flex items-center justify-between">
-              <span className="text-white font-semibold text-sm">
-                FICHAS - Cadastro de {newUser.name || 'Usuario'}
+              <span className="text-white font-semibold text-sm mx-auto uppercase text-center w-full">
+                FICHA DE USUARIO - CADASTROS
               </span>
               <button
                 type="button"
@@ -561,178 +561,17 @@ const Security: React.FC<SecurityProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-4 -mt-4" onSubmit={handleCreateSubmit}>
-              <div className="col-span-1 md:col-span-8">
-                <label className="text-white/80 text-sm mb-1 block">Nome completo</label>
-                <input
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.name}
-                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="md:col-span-4">
-                <label className="text-white/80 text-sm mb-1 block">Usuario</label>
-                <input
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.username}
-                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="md:col-span-6">
-                <label className="text-white/80 text-sm mb-1 block">Cargo</label>
-                <input
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.job_title}
-                  onChange={(e) => setNewUser({ ...newUser, job_title: e.target.value })}
-                />
-              </div>
-              <div className="md:col-span-4">
-                <label className="text-white/80 text-sm mb-1 block">Perfil</label>
-                <select
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.type_user}
-                  onChange={(e) => setNewUser({ ...newUser, type_user: e.target.value })}
-                >
-                  <option value="Usuario">Usuario</option>
-                  <option value="Administrador">Administrador</option>
-                </select>
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-white/80 text-sm mb-1 block">Data de Registro</label>
-                <input
-                  type="date"
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.date_registration}
-                  readOnly
-                />
-              </div>
-              <div className="md:col-span-4">
-                <label className="text-white/80 text-sm mb-1 block">Setor</label>
-                <select
-                  className="w-full bg-slate-900/80 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  style={{ backgroundColor: '#0f172a', color: '#e2e8f0' }}
-                  value={sectorSelection}
-                  onChange={(e) => {
-                    const selected = e.target.value
-                    if (!selected) return
-                    const current = newUser.authorizedSector
-                      ? newUser.authorizedSector.split(',').map((s) => s.trim()).filter(Boolean)
-                      : []
-                    if (current.includes(selected)) {
-                    setSectorSelection('')
-                    return
-                  }
-                  const nextList = [...current, selected]
-                  const csv = nextList.join(', ')
-                    setNewUser({ ...newUser, allowed_sector: csv, authorizedSector: csv })
-                    setSectorSelection('')
-                  }}
-                >
-                  <option value="" hidden>
-                    --
-                  </option>
-                  {sectorOptions.map((opt) => {
-                    const current = newUser.authorizedSector
-                      ? newUser.authorizedSector.split(',').map((s) => s.trim()).filter(Boolean)
-                      : []
-                    return (
-                      <option key={opt} value={opt} disabled={current.includes(opt)} className="bg-slate-900 text-white">
-                        {opt}
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
-              <div className="md:col-span-8">
-                <label className="text-white/80 text-sm mb-1 block">Setor Autorizado</label>
-                <textarea
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none resize-y min-h-[38px]"
-                  value={newUser.authorizedSector}
-                  readOnly
-                />
-              </div>
-              <div className="md:col-span-4">
-                <label className="text-white/80 text-sm mb-1 block">Metodos</label>
-                <select
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none"
-                  value={newUser.modules}
-                  onChange={(e) => setNewUser({ ...newUser, modules: e.target.value })}
-                >
-                  <option value="">Selecione</option>
-                  <option value="Metodo A">Metodo A</option>
-                  <option value="Metodo B">Metodo B</option>
-                  <option value="Metodo C">Metodo C</option>
-                </select>
-              </div>
-              <div className="md:col-span-6">
-                <p className="text-white/80 text-sm mb-1 block">Permissoes (Security)</p>
-                <div className="grid grid-cols-6 gap-6">
-                  {['CREATER', 'UPDATE', 'DELETE', 'READ', 'PASSWORD'].map((perm) => (
-                    <label key={perm} className="flex items-center gap-2 text-white/80 text-sm">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4"
-                        checked={newUser.security.includes(perm)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewUser({ ...newUser, security: [...newUser.security, perm] })
-                          } else {
-                            setNewUser({
-                              ...newUser,
-                              security: newUser.security.filter((p) => p !== perm),
-                            })
-                          }
-                        }}
-                      />
-                      {perm}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="md:col-span-2 flex items-end">
-                <button
-                  type="button"
-                  className="w-full px-4 py-2 rounded-md bg-white/10 border border-white/15 text-white hover:bg-emerald-500/20 hover:border-emerald-300/40 transition-colors"
-                  title="Adicionar"
-                >
-                  Adicionar
-                </button>
-              </div>
-              <div className="md:col-span-12">
-                <label className="text-white/80 text-sm mb-1 block">Observações</label>
-                <textarea
-                  className="w-full bg-white/10 border border-white/15 rounded-md px-3 py-2 text-white outline-none resize-y min-h-[60px]"
-                  value={newUser.authorizedModules}
-                  onChange={(e) => setNewUser({ ...newUser, authorizedModules: e.target.value })}
-                />
-              </div>
-              {createFeedback && (
-                <div className="md:col-span-2 text-sm text-amber-200 bg-amber-500/10 border border-amber-300/40 rounded-md px-3 py-2">
-                  {createFeedback}
-                </div>
-              )}
-              <div className="md:col-span-2 flex justify-end gap-3">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-md bg-white/10 border border-white/15 text-white hover:bg-white/15 transition-colors"
-                  onClick={() => {
-                    setShowCreate(false)
-                    setCreateFeedback(null)
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-md bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  disabled={isCreating}
-                >
-                  {isCreating ? 'Criando...' : 'Salvar'}
-                </button>
-              </div>
-            </form>
+            <UserForm
+              newUser={newUser}
+              setNewUser={setNewUser}
+              isCreating={isCreating}
+              createFeedback={createFeedback}
+              onCancel={() => {
+                setShowCreate(false)
+                setCreateFeedback(null)
+              }}
+              onSubmit={handleCreateSubmit}
+            />
           </div>
         )}
       </div>
