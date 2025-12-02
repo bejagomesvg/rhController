@@ -136,7 +136,7 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
   }
 
   return (
-    <form className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-4 -mt-3" onSubmit={onSubmit}>
+    <form className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-6 mt-2" onSubmit={onSubmit}>
       {/* Row 1 - Nome / Usuario */}
       <div className="col-span-12 md:col-span-8">
           <label className="block text-[10px] text-white/70 mb-1 uppercase tracking-[0.18em] font-semibold">Nome completo</label>
@@ -220,11 +220,18 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
           <label className="block text-[10px] text-white/70 mb-1 uppercase tracking-[0.18em] font-semibold">Setor Autorizado</label>
         <div className={getTagContainerClasses(!!errors.authorizedSector)}>
           {getSectorsArray().map((s) => (
-              <span key={s} className="inline-flex items-center gap-2 bg-[#342e4a] text-white text-[12px] px-2 py-1 rounded-full border border-[#4b3d66] uppercase tracking-wider max-w-full">
-              {s}
-              <button type="button" className="w-6 h-6 flex items-center justify-center rounded-full bg-white/5 text-white/80 hover:bg-rose-500/40 ml-1" onClick={() => handleRemoveSector(s)}>
-                          <X size={10} />
-                        </button>
+            <span
+              key={s}
+              className="inline-flex items-start gap-2 bg-[#342e4a] text-white text-[12px] px-2 py-1 rounded-md border border-[#4b3d66] uppercase tracking-wider max-w-full break-words whitespace-normal"
+            >
+              <span className="break-words whitespace-normal">{s}</span>
+              <button
+                type="button"
+                className="w-6 h-6 flex items-center justify-center rounded-md bg-white/5 text-white/80 hover:bg-rose-500/40 ml-1"
+                onClick={() => handleRemoveSector(s)}
+              >
+                <X size={10} />
+              </button>
             </span>
           ))}
           <input
@@ -307,9 +314,18 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
           <label className="text-[10px] text-white/70 mb-1 uppercase tracking-[0.18em] font-semibold">Módulos Autorizados</label>
         <div className={`${getTagContainerClasses(false, 'min-h-[90px] max-h-[120px]')} px-3 py-2`}>
           {getModulesArray().map((m, idx) => (
-            <span key={idx} className="inline-flex items-center gap-2 bg-[#342e4a] text-white text-[11px] px-2 py-1 rounded-full border border-[#50406a] uppercase tracking-wider max-w-full">
-              <span className="truncate max-w-[140px] md:max-w-[220px]">{m}</span>
-              <button type="button" onClick={() => handleRemoveModule(m)} className="w-6 h-6 flex items-center justify-center rounded-full bg-white/5 text-white/80 hover:bg-rose-500/40 ml-1"><X size={10} /></button>
+            <span
+              key={idx}
+              className="inline-flex items-start gap-2 bg-[#342e4a] text-white text-[11px] px-2 py-1 rounded-md border border-[#50406a] uppercase tracking-wider max-w-full break-words whitespace-normal"
+            >
+              <span className="break-words whitespace-normal">{m}</span>
+              <button
+                type="button"
+                onClick={() => handleRemoveModule(m)}
+                className="w-6 h-6 flex items-center justify-center rounded-md bg-white/5 text-white/80 hover:bg-rose-500/40 ml-1"
+              >
+                <X size={10} />
+              </button>
             </span>
           ))}
         </div>

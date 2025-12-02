@@ -29,9 +29,22 @@ export function App(): ReactElement {
     type: null,
     message: '',
   })
-  const [securityCard, setSecurityCard] = useState<{ title: string; description: string; accent?: string } | null>(null)
   const savedSession = loadSession()
-  const [mode, setMode] = useState<Mode>(savedSession ? 'dashboard' : 'login')
+  const [mode, setMode] = useState<Mode>(() => {
+    if (!savedSession) return 'login'
+    if (typeof window === 'undefined') return 'dashboard'
+    const storedMode = window.localStorage.getItem('rh_mode') as Mode | null
+    return storedMode === 'security' || storedMode === 'dashboard' ? storedMode : 'dashboard'
+  })
+  const [securityCard, setSecurityCard] = useState<{ title: string; description: string; accent?: string } | null>(() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const stored = window.localStorage.getItem('rh_security_card')
+      return stored ? (JSON.parse(stored) as { title: string; description: string; accent?: string }) : null
+    } catch {
+      return null
+    }
+  })
   const [pendingUser, setPendingUser] = useState<{ id: number; username: string } | null>(null)
   const [currentUser, setCurrentUser] = useState<UserRegistration | null>(savedSession)
   const isSetPassword = mode === 'set-password'
@@ -62,6 +75,7 @@ export function App(): ReactElement {
     setMode('login')
     setCurrentUser(null)
     setPendingUser(null)
+    setSecurityCard(null)
     setUsername('')
     setPassword('')
     setNewPassword('')
@@ -106,7 +120,7 @@ export function App(): ReactElement {
         return
       }
 
-      if (isDefaultPassword(user.password)) {
+      if (await isDefaultPassword(user.password)) {
         const matchesDefault = await verifyPassword(password, user.password)
         if (matchesDefault) {
           setMode('set-password')
@@ -220,7 +234,21 @@ export function App(): ReactElement {
     return () => window.clearTimeout(timer)
   }, [feedback.message])
 
-  // Atualiza permissÃµes/mÃ³dulos periodicamente enquanto logado.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('rh_mode', mode)
+  }, [mode])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (securityCard) {
+      window.localStorage.setItem('rh_security_card', JSON.stringify(securityCard))
+    } else {
+      window.localStorage.removeItem('rh_security_card')
+    }
+  }, [securityCard])
+
+  // Atualiza permissões/módulos periodicamente enquanto logado.
   useEffect(() => {
     if (!currentUser?.username) return
     const interval = window.setInterval(async () => {
@@ -580,3 +608,7 @@ export function App(): ReactElement {
     </div>
   )
 }
+
+
+
+

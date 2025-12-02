@@ -126,6 +126,13 @@ export async function updateLastAccess(userId: number) {
   }
 }
 
-export function isDefaultPassword(stored: string | undefined): boolean {
-  return !!defaultPassword && !!stored && stored === defaultPassword
+export async function isDefaultPassword(stored: string | undefined): Promise<boolean> {
+  if (!defaultPassword || !stored) return false
+
+  // Se a senha padrÃ£o estÃ¡ em hash, conferimos igualdade direta; caso contrÃ¡rio, validamos a senha em texto.
+  if (defaultPassword.startsWith('pbkdf2:')) {
+    return stored === defaultPassword
+  }
+
+  return verifyPassword(defaultPassword, stored)
 }

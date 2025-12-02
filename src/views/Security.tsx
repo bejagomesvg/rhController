@@ -375,20 +375,20 @@ const Security: React.FC<SecurityProps> = ({
       <div className="space-y-3">
         {!showCreate && (
           <div className="flex flex-col md:flex-row gap-3">
-            <div className="flex-1 flex items-center bg-white/10 border border-white/15 rounded-lg px-3 py-2 text-white">
+            <div className="flex-1 flex items-center bg-white/10 border border-white/15 rounded-lg px-3 text-white h-11">
               <Search className="w-4 h-4 text-white/70 mr-2" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar por nome..."
-                className="flex-1 bg-transparent border-none outline-none placeholder:text-white/50 text-sm text-white"
+                className="flex-1 bg-transparent border-none outline-none placeholder:text-white/50 text-sm text-white h-full"
               />
             </div>
             <select
               value={profileFilter}
               onChange={(e) => setProfileFilter(e.target.value)}
-              className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 py-2 outline-none"
+              className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 h-11 outline-none"
             >
               <option value="todos">Todos os perfis</option>
               <option value="usuario">Usuario</option>
@@ -397,7 +397,7 @@ const Security: React.FC<SecurityProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 py-2 outline-none"
+              className="bg-white/10 border border-white/15 text-white text-sm rounded-lg px-3 h-11 outline-none"
             >
               <option value="todos">Todos os status</option>
               <option value="ativos">Ativos</option>
