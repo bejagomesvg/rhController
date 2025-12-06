@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS employee (
     id INT PRIMARY KEY,                  -- Identificador único do funcionário
     company INT,                         -- Código da empresa
-    registration VARCHAR(50),            -- Número de registro interno do funcionário
+    registration INT,                    -- Número de registro interno do funcionário
     name VARCHAR(150),                   -- Nome completo do funcionário
     cpf VARCHAR(14),                     -- CPF (Cadastro de Pessoa Física - Brasil)
     date_birth DATE,                     -- Data de nascimento
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS employee (
     status INT,                          -- Status do vínculo (0=Inativo, 1=Ativo, 2=Férias, 3=Demitido, etc.)
     date_status DATE,                    -- Data em que o status foi atualizado
     role VARCHAR(100),                   -- Cargo ou função
-    sector VARCHAR(100),                 -- Setor ou departamento
+    sector VARCHAR(100),                 -- Setor ou departamento (Descrição do Local)
     nationality VARCHAR(50),             -- Nacionalidade    
     education VARCHAR(50),               -- Escolaridade
     sex CHAR(1),                         -- Sexo (Masculino/Feminino)
@@ -34,7 +34,7 @@ Admissão
 Situação
 Data Afastamento
 Título Reduzido (Cargo)
-Código Local
+Descrição do Local
 Descrição (Nacionalidade)
 Descrição (Instrução)
 Sexo

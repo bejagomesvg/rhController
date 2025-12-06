@@ -27,6 +27,28 @@ interface HistoryEntry {
   id?: number
 }
 
+interface EmployeePayload {
+  company: number | null
+  registration: number | null
+  name: string
+  cpf: string
+  date_birth: string | null
+  date_hiring: string | null
+  status: number | null
+  date_status: string | null
+  role: string | null
+  sector: string | null
+  nationality: string | null
+  education: string | null
+  sex: string | null
+  marital: string | null
+  ethnicity: string | null
+  salary: number | null
+  type_registration: string
+  user_registration: string | null
+  date_registration: string
+}
+
 interface TableLoadProps {
   onBack: () => void
   userName?: string
@@ -130,6 +152,193 @@ const TableLoad: React.FC<TableLoadProps> = ({
       )
     } catch (error) {
       console.error('Erro ao buscar histórico', error)
+    }
+  }
+
+  const syncEmployeeLogs = async () => {
+    if (!supabaseUrl || !supabaseKey) {
+      pushMessage('❌ Supabase não configurado para sincronizar employee')
+      return
+    }
+    try {
+      const empUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
+      empUrl.searchParams.set('select', 'id,registration,date_registration,user_registration')
+      const empRes = await fetch(empUrl.toString(), {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      })
+      if (!empRes.ok) {
+        console.error('Erro ao buscar employee', await empRes.text())
+        pushMessage('❌ Erro ao ler tabela employee')
+        return
+      }
+      const employees = (await empRes.json()) as Array<{
+        id: number
+        registration: string
+        date_registration: string | null
+        user_registration: string | null
+      }>
+      if (!employees.length) return
+
+      const maxLen = 50
+      const truncate = (value: string) => (value.length > maxLen ? value.slice(0, maxLen) : value)
+      const payload = employees.map((emp) => ({
+        id: emp.id ?? Math.floor(Math.random() * 900_000_000) + 1,
+        registration: truncate(emp.registration || '-'),
+        date_registration: emp.date_registration || new Date().toISOString(),
+        file_: 'cadastro.xlsx',
+        user_registration: truncate(emp.user_registration || userName || '-'),
+      }))
+
+      const insertUrl = new URL(`${supabaseUrl}/rest/v1/log_table_load`)
+      insertUrl.searchParams.set('on_conflict', 'id')
+      const res = await fetch(insertUrl.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Prefer: 'return=representation,resolution=merge-duplicates',
+        },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        console.error('Erro ao sincronizar logs', await res.text())
+        pushMessage('❌ Erro ao sincronizar logs do employee')
+        return
+      }
+      await fetchHistory()
+      pushMessage('✅ Logs sincronizados com employee')
+    } catch (error) {
+      console.error('Erro ao sincronizar logs', error)
+      pushMessage('❌ Erro ao sincronizar logs do employee')
+    }
+  }
+
+  const mapRowToEmployee = (row: Record<string, any>): EmployeePayload => {
+    const parseNumber = (val: any): number | null => {
+      const num = Number(String(val).replace(/\D/g, ''))
+      return Number.isNaN(num) ? null : num
+    }
+    const parseDateIso = (val: any): string | null => {
+      const formatted = formatDate(val)
+      return formatted || null
+    }
+
+    return {
+      company: parseNumber(row['Empresa']),
+      registration: parseNumber(row['Cadastro']),
+      name: String(row['Nome'] || '').trim(),
+      cpf: formatCPF(row['CPF']),
+      date_birth: parseDateIso(row['Nascimento']),
+      date_hiring: parseDateIso(row['Admissão']),
+      status: parseNumber(row['Situação']),
+      date_status: parseDateIso(row['Data Afastamento']),
+      role: row['Título Reduzido (Cargo)'] ? String(row['Título Reduzido (Cargo)']).trim() : null,
+      sector: row['Descrição do Local'] ? String(row['Descrição do Local']).trim() : null,
+      nationality: row['Descrição (Nacionalidade)'] ? String(row['Descrição (Nacionalidade)']).trim() : null,
+      education: row['Descrição (Instrução)'] ? String(row['Descrição (Instrução)']).trim() : null,
+      sex: row['Sexo'] ? String(row['Sexo']).trim() : null,
+      marital: row['Descrição (Estado Civil)'] ? String(row['Descrição (Estado Civil)']).trim() : null,
+      ethnicity: row['Descrição (Raça/Etnia)'] ? String(row['Descrição (Raça/Etnia)']).trim() : null,
+      salary: (() => {
+        if (!row['Valor Salário'] && row['Valor Salário'] !== 0) return null
+        const parsed = Number(String(row['Valor Salário']).replace(/[^\d,-]/g, '').replace(',', '.'))
+        return Number.isNaN(parsed) ? null : parsed
+      })(),
+      type_registration: 'importado',
+      user_registration: userName || null,
+      date_registration: new Date().toISOString(),
+    }
+  }
+
+  const insertEmployees = async (data: SheetData) => {
+    if (!supabaseUrl || !supabaseKey) {
+      pushMessage('❌ Supabase não configurado para salvar employee')
+      return { ok: false, newCount: 0, updatedCount: 0 }
+    }
+    try {
+      const payload: EmployeePayload[] = data.map(mapRowToEmployee)
+
+      // Buscar registros existentes para saber o que é novo x atualização
+      const existingUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
+      existingUrl.searchParams.set('select', 'registration')
+      const existingRes = await fetch(existingUrl.toString(), {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      })
+      if (!existingRes.ok) {
+        console.error('Erro ao buscar registros existentes', await existingRes.text())
+        pushMessage('❌ Erro ao ler tabela employee')
+        return { ok: false, newCount: 0, updatedCount: 0 }
+      }
+      const existingData = (await existingRes.json()) as Array<{ registration: number }>
+      const existingSet = new Set(existingData.map((r) => r.registration))
+      let newCount = 0
+      let updatedCount = 0
+      const filtered = payload.filter((p) => p.registration !== null)
+      const toUpdate = filtered.filter((p) => p.registration !== null && existingSet.has(p.registration))
+      const toInsert = filtered.filter((p) => p.registration !== null && !existingSet.has(p.registration))
+      updatedCount = toUpdate.length
+      newCount = toInsert.length
+      if (filtered.length === 0) {
+        pushMessage('❌ Nenhuma linha com registro válido para employee')
+        return { ok: false, newCount: 0, updatedCount: 0 }
+      }
+
+      // Atualiza registros existentes
+      for (const entry of toUpdate) {
+        const updateUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
+        updateUrl.searchParams.set('registration', `eq.${entry.registration}`)
+        const res = await fetch(updateUrl.toString(), {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify(entry),
+        })
+        if (!res.ok) {
+          const errTxt = await res.text()
+          console.error('Erro ao atualizar employee', errTxt)
+          pushMessage(`❌ Erro ao atualizar employee: ${errTxt.substring(0, 120)}`)
+          return { ok: false, newCount: 0, updatedCount: 0 }
+        }
+      }
+
+      // Inserir novos registros
+      if (toInsert.length > 0) {
+        const insertUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
+        const resInsert = await fetch(insertUrl.toString(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify(toInsert),
+        })
+        if (!resInsert.ok) {
+          const errTxt = await resInsert.text()
+          console.error('Erro ao inserir employee', errTxt)
+          pushMessage(`❌ Erro ao inserir employee: ${errTxt.substring(0, 120)}`)
+          return { ok: false, newCount: 0, updatedCount: 0 }
+        }
+      }
+
+      pushMessage(`Sua operação gerou: ${updatedCount} atualizados, ${newCount} inseridos.`)
+      return { ok: true, newCount, updatedCount }
+    } catch (error) {
+      console.error('Erro ao salvar employee', error)
+      pushMessage('❌ Erro ao gravar tabela employee (ver console)')
+      return { ok: false, newCount: 0, updatedCount: 0 }
     }
   }
 
@@ -269,11 +478,8 @@ const TableLoad: React.FC<TableLoadProps> = ({
     try {
       const maxLen = 50
       const truncate = (value: string) => (value.length > maxLen ? value.slice(0, maxLen) : value)
-      // id precisa caber em INT
-      const id = Math.floor(Math.random() * 900_000_000) + 1
       const url = new URL(`${supabaseUrl}/rest/v1/log_table_load`)
       const payload = {
-        id,
         registration: truncate(entry.registration),
         // Gravando com horário completo (timestamptz no banco)
         date_registration: new Date().toISOString(),
@@ -342,9 +548,16 @@ const TableLoad: React.FC<TableLoadProps> = ({
       pushMessage('Enviando dados para o servidor...')
       await sleep(900)
 
+      const employeeResult = await insertEmployees(sheetData)
+      if (!employeeResult.ok) {
+        setStatus('error')
+        pushMessage('❌ Falha ao gravar tabela employee. Log não enviado.')
+        setImportFinished(false)
+        return
+      }
       setStatus('done')
       setProgress(100)
-      setMessages(['✅ Importação concluída com sucesso.'])
+      pushMessage('✅ Importação concluída com sucesso.')
       await insertHistory({
         registration: sheetType === 'CADASTRO' ? 'Cadastro de Funcionário' : sheetType || '-',
         date: formatNow(),
@@ -585,48 +798,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
         </div>
       </div>
 
-      {/* Mensagens, Erros e Tabela - Full Width Abaixo */}
-      <div className="space-y-4">
-        {/* Ocultando o detalhamento de erros por linha conforme solicitado */}
-
-        {previewVisible && sheetData.length > 0 && (
-          <div className="bg-slate-900/70 border border-white/10 rounded-xl p-4 space-y-3">
-            <div className="flex items-center gap-2 mb-4">
-              <FileSpreadsheet className="w-5 h-5 text-emerald-300" />
-              <p className="text-white font-semibold">Preview dos dados ({sheetData.length} linha(s))</p>
-            </div>
-            <div className="overflow-x-auto border border-white/10 rounded-lg">
-              <table className="w-full text-sm text-white/80">
-                <thead className="bg-slate-800/80 border-b border-white/10">
-                  <tr>
-                    {columns.map((col) => (
-                      <th key={col} className="px-4 py-2 text-left font-semibold text-white/90 text-xs uppercase tracking-wide">
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sheetData.slice(0, 10).map((row, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? 'bg-white/5' : 'bg-transparent'}>
-                      {columns.map((col) => (
-                        <td key={`${idx}-${col}`} className="px-4 py-2 text-white/70 truncate max-w-xs">
-                          {formatDisplayValue(col, row[col])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {sheetData.length > 10 && (
-              <p className="text-white/60 text-xs text-center py-2">
-                Exibindo 10 de {sheetData.length} linhas
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+      {/* Preview de dados ocultado conforme solicitado */}
     </div>
   )
 }
