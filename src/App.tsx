@@ -567,7 +567,7 @@ export function App(): ReactElement {
             <div className="space-y-1 -mt-10">
               <Dashboard
                 onLogout={handleLogout}
-                userName={currentUser?.name || currentUser?.username || 'Usuário'}
+                userName={currentUser?.username || currentUser?.name || 'Usuário'}
                 userRole={currentUser?.type_user || 'Perfil não informado'}
                 allowedModules={allowedModules}
                 onOpenSecurity={(module) => {
@@ -602,7 +602,7 @@ export function App(): ReactElement {
               {securityCard?.accent === 'table_load' ? (
                 <TableLoad
                   onBack={() => setMode('dashboard')}
-                  userName={currentUser?.name || currentUser?.username || 'Usuario'}
+                  userName={currentUser?.username || currentUser?.name || 'Usuario'}
                   userRole={currentUser?.type_user || 'Perfil nao informado'}
                   title={securityCard?.title}
                   description={securityCard?.description}

@@ -1,7 +1,6 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
@@ -18,6 +17,14 @@ type SheetData = Record<string, any>[]
 interface RowError {
   rowIndex: number
   errors: string[]
+}
+
+interface HistoryEntry {
+  date: string
+  banco: string
+  arquivo: string
+  usuario: string
+  id?: number
 }
 
 interface TableLoadProps {
@@ -43,12 +50,17 @@ const TableLoad: React.FC<TableLoadProps> = ({
   const [messages, setMessages] = useState<string[]>([])
   const [sheetData, setSheetData] = useState<SheetData>([])
   const [columns, setColumns] = useState<string[]>([])
-  const [validationErrors, setValidationErrors] = useState<RowError[]>([])
   const [sheetHeaderError, setSheetHeaderError] = useState<string[]>([])
   const [previewVisible, setPreviewVisible] = useState<boolean>(false)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [importFinished, setImportFinished] = useState<boolean>(false)
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  const supabaseKey = import.meta.env.VITE_SUPABASE_KEY
+
+  const hideImportButton = sheetHeaderError.length > 0 || sheetData.length === 0 || importFinished
 
   const statusLabel: Record<ImportStatus, string> = {
-    idle: 'Aguardando',
+    idle: '',
     validating: 'Validando planilha',
     uploading: 'Enviando dados',
     done: 'Concluido',
@@ -59,6 +71,102 @@ const TableLoad: React.FC<TableLoadProps> = ({
     setMessages((prev) => [message, ...prev].slice(0, 6))
   }
 
+  const extractFieldFromError = (errorMsg: string): string | null => {
+    const knownFields = [...REQUIRED_FIELDS, 'CPF']
+    const match = knownFields.find((field) => errorMsg.startsWith(field))
+    return match || null
+  }
+
+  const formatNow = () => {
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(
+      now.getMinutes()
+    )}`
+  }
+
+  const formatDateFromDb = (value?: string | null) => {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(
+      date.getMinutes()
+    )}`
+  }
+
+  const fetchHistory = async () => {
+    if (!supabaseUrl || !supabaseKey) return
+    try {
+      const url = new URL(`${supabaseUrl}/rest/v1/log_table_load`)
+      url.searchParams.set('select', 'id,registration,date_registration,file_,user_registration')
+      url.searchParams.set('order', 'date_registration.desc')
+      const res = await fetch(url.toString(), {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Prefer: 'return=minimal',
+        },
+      })
+      if (!res.ok) {
+        console.error('Erro ao buscar histórico', await res.text())
+        return
+      }
+      const data = (await res.json()) as Array<{
+        id: number
+        registration: string
+        date_registration: string
+        file_: string
+        user_registration: string
+      }>
+      setHistory(
+        data.map((item) => ({
+          id: item.id,
+          banco: item.registration,
+          date: formatDateFromDb(item.date_registration),
+          arquivo: item.file_,
+          usuario: item.user_registration,
+        }))
+      )
+    } catch (error) {
+      console.error('Erro ao buscar histórico', error)
+    }
+  }
+
+  const renderMessage = (msg: string) => {
+    // Destaca o sufixo entre parênteses (ex.: campos com problema) em amarelo/verm.
+    const warningMatch = msg.match(/^(.*-)\s*\(\s*([^)]+)\s*\)(.*)$/)
+    if (warningMatch) {
+      const [, before, suffix, after] = warningMatch
+      return (
+        <span className="text-xs">
+          {before} <span className="text-amber-300">( {suffix} )</span>
+          {after}
+        </span>
+      )
+    }
+    if (msg.trim().startsWith('❌')) {
+      const firstParen = msg.indexOf('(')
+      const lastParen = msg.lastIndexOf(')')
+      if (firstParen !== -1 && lastParen !== -1 && lastParen > firstParen) {
+        const before = msg.slice(0, firstParen).trimEnd()
+        const suffix = msg.slice(firstParen + 1, lastParen)
+        const after = msg.slice(lastParen + 1)
+        return (
+          <span className="text-xs">
+            {before} <span className="text-rose-400">( {suffix} )</span>
+            {after}
+          </span>
+        )
+      }
+    }
+    return <span className="text-xs">{msg}</span>
+  }
+
+  useEffect(() => {
+    fetchHistory()
+  }, [])
+
   const handleFileSelect = (file: File | null) => {
     setSelectedFile(file)
     setProgress(0)
@@ -67,6 +175,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
     setSheetData([])
     setColumns([])
     setPreviewVisible(false)
+    setImportFinished(false)
     if (file) {
       pushMessage(`Arquivo selecionado: ${file.name}`)
       // Ler automaticamente o arquivo ao selecionar
@@ -83,11 +192,12 @@ const TableLoad: React.FC<TableLoadProps> = ({
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
         const jsonData = XLSX.utils.sheet_to_json(firstSheet) as SheetData
         
+        setImportFinished(false)
+        
         if (jsonData.length === 0) {
           pushMessage('Arquivo vazio.')
           setSheetData([])
           setColumns([])
-          setValidationErrors([])
           setSheetHeaderError([])
           return
         }
@@ -98,16 +208,16 @@ const TableLoad: React.FC<TableLoadProps> = ({
         const headerValidation = validateEmployeeSheet(cols)
         if (!headerValidation.valid) {
           setSheetHeaderError(headerValidation.missingFields)
-          pushMessage(`❌ Campos obrigatórios faltando: ${headerValidation.missingFields.join(', ')}`)
+          const missing = headerValidation.missingFields.join(', ')
+          pushMessage(`❌ Campos obrigatórios faltando: (${missing})`)
           setSheetData([])
           setColumns([])
-          setValidationErrors([])
           return
         }
 
         // Headers válidos, limpar erro
         setSheetHeaderError([])
-        pushMessage(`✅ Headers validados: ${cols.length} coluna(s)`)
+        pushMessage(`Headers validados: ${cols.length} coluna(s)`)
 
         // Validar dados de cada linha
         const rowErrors: RowError[] = []
@@ -122,27 +232,88 @@ const TableLoad: React.FC<TableLoadProps> = ({
         })
 
         if (rowErrors.length > 0) {
-          setValidationErrors(rowErrors)
-          pushMessage(`⚠️  ${rowErrors.length} linha(s) com erro(s) de validação`)
+          const errorFields = new Set<string>()
+          rowErrors.forEach((rowErr) => {
+            rowErr.errors.forEach((msg) => {
+              const field = extractFieldFromError(msg)
+              if (field) errorFields.add(field)
+            })
+          })
+          const fieldsText = Array.from(errorFields).join(', ')
+          const suffix = fieldsText ? ` ( ${fieldsText})` : ''
+          pushMessage(`⚠️  ${rowErrors.length} linha(s) - ${suffix} corrigidos e validado!`)
         } else {
-          setValidationErrors([])
-          pushMessage(`✅ Todas as ${jsonData.length} linhas validadas com sucesso`)
+          pushMessage(`Todas as ${jsonData.length} linhas validadas com sucesso`)
         }
 
         const displayColumns = REQUIRED_FIELDS.filter((field) => cols.includes(field))
         setColumns(displayColumns)
         setSheetData(jsonData)
-        pushMessage(`Planilha carregada: ${jsonData.length} linha(s)`)
+        pushMessage(`✅ ${jsonData.length} linha(s) pronta pra ser enviada ao servidor`)
       } catch (error) {
         console.error('Erro ao ler arquivo:', error)
         pushMessage('❌ Erro ao ler o arquivo.')
         setSheetData([])
         setColumns([])
-        setValidationErrors([])
         setSheetHeaderError([])
       }
     }
     reader.readAsArrayBuffer(file)
+  }
+
+  const insertHistory = async (entry: { registration: string; date: string; file: string; user: string }) => {
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Supabase não configurado (VITE_SUPABASE_URL / VITE_SUPABASE_KEY)')
+      return false
+    }
+    try {
+      const maxLen = 50
+      const truncate = (value: string) => (value.length > maxLen ? value.slice(0, maxLen) : value)
+      // id precisa caber em INT
+      const id = Math.floor(Math.random() * 900_000_000) + 1
+      const url = new URL(`${supabaseUrl}/rest/v1/log_table_load`)
+      const payload = {
+        id,
+        registration: truncate(entry.registration),
+        // Gravando com horário completo (timestamptz no banco)
+        date_registration: new Date().toISOString(),
+        file_: truncate(entry.file),
+        user_registration: truncate(entry.user),
+      }
+      const res = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const errTxt = await res.text()
+        console.error('Erro ao gravar histórico', errTxt)
+        pushMessage('❌ Erro ao gravar log no banco')
+        return false
+      }
+      const [created] = (await res.json()) as Array<{
+        id: number
+        registration: string
+        date_registration: string
+        file_: string
+        user_registration: string
+      }>
+      if (created) {
+        await fetchHistory()
+        return true
+      }
+      pushMessage('❌ Erro ao gravar log no banco')
+      return false
+    } catch (error) {
+      console.error('Erro ao gravar histórico', error)
+      pushMessage('❌ Erro ao gravar log no banco')
+      return false
+  }
   }
 
   const simulateImport = async () => {
@@ -163,7 +334,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
       setPreviewVisible(false)
       setStatus('validating')
       setProgress(20)
-      pushMessage(`Validando "${selectedFile.name}" (${sheetType})...`)
+      pushMessage(`Validando a planilha "${selectedFile.name}" para ser envida ao Servidor`)
       await sleep(600)
 
       setStatus('uploading')
@@ -173,26 +344,35 @@ const TableLoad: React.FC<TableLoadProps> = ({
 
       setStatus('done')
       setProgress(100)
-      pushMessage('Importacao concluida.')
+      setMessages(['✅ Importação concluída com sucesso.'])
+      await insertHistory({
+        registration: sheetType === 'CADASTRO' ? 'Cadastro de Funcionário' : sheetType || '-',
+        date: formatNow(),
+        file: selectedFile?.name || '-',
+        user: userName || '-',
+      })
       setPreviewVisible(true)
+      setImportFinished(true)
     } catch (error) {
       console.error('Erro na importacao simulada:', error)
       setStatus('error')
       pushMessage('Erro ao importar. Tente novamente.')
       setPreviewVisible(false)
+      setImportFinished(false)
     }
   }
 
   const resetForm = () => {
     setSelectedFile(null)
+    setSheetType('')
     setStatus('idle')
     setProgress(0)
     setMessages([])
     setSheetData([])
     setColumns([])
-    setValidationErrors([])
     setSheetHeaderError([])
     setPreviewVisible(false)
+    setImportFinished(false)
   }
 
   const getStatusColor = () => {
@@ -232,7 +412,10 @@ const TableLoad: React.FC<TableLoadProps> = ({
             <p className="text-white/60 text-[11px] uppercase tracking-[0.25em]">{userRole}</p>
           </div>
           <button
-            onClick={onBack}
+            onClick={() => {
+              resetForm()
+              onBack()
+            }}
             className="flex items-center gap-2 text-emerald-100 bg-white/10 border border-white/10 px-3 py-2 rounded-lg hover:bg-emerald-500/20 hover:border-emerald-300/40 transition-colors text-xs font-semibold uppercase tracking-wide"
             title="Voltar para o dashboard"
           >
@@ -273,25 +456,27 @@ const TableLoad: React.FC<TableLoadProps> = ({
                   onChange={(e) => setSheetType(e.target.value as any)}
                   className="w-full bg-white/5 text-white text-sm border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-emerald-400"
                 >
-                  <option value="">-- selecione --</option>
-                  <option value="CADASTRO">CADASTRO</option>
-                  <option value="HORAS_EXTRAS">HORAS EXTRAS</option>
-                  <option value="FECHAMENTO">FECHAMENTO</option>
+                  <option value="" className="bg-[#202422] text-white">Selecione</option>
+                  <option value="CADASTRO" className="bg-[#202422] text-white">CADASTRO</option>
+                  <option value="HORAS_EXTRAS" className="bg-[#202422] text-white">HORAS EXTRAS</option>
+                  <option value="FECHAMENTO" className="bg-[#202422] text-white">FECHAMENTO</option>
                 </select>
               </div>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-2 rounded-md bg-transparent border border-emerald-500/60 text-emerald-300 font-semibold hover:bg-emerald-500/20 hover:border-emerald-400/80 transition-all flex items-center gap-2 whitespace-nowrap"
-              >
-                <Upload className="w-5 h-5" />
-                Upload
-              </button>
+              {sheetType && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-2 rounded-md bg-transparent border border-emerald-500/60 text-emerald-300 font-semibold hover:bg-emerald-500/20 hover:border-emerald-400/80 transition-all flex items-center gap-2 whitespace-nowrap"
+                >
+                  <Upload className="w-5 h-5" />
+                  Upload
+                </button>
+              )}
             </div>
           </div>
 
           <div
-            className={`border-2 border-dashed rounded-xl p-2 flex flex-col items-center justify-center gap-3 ${
+            className={`border-2 border-dashed rounded-md p-2 flex flex-col items-center justify-center gap-3 ${
               status === 'error' ? 'border-amber-400/60 bg-amber-500/5' : 'border-white/15 bg-white/5'
             }`}
           >
@@ -313,21 +498,14 @@ const TableLoad: React.FC<TableLoadProps> = ({
               ) : (
                 <ul className="text-white/80 text-sm space-y-1 max-h-[200px] overflow-y-auto">
                   {messages.map((msg, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="mt-[3px] block w-1.5 h-1.5 rounded-full bg-emerald-300 flex-shrink-0" />
-                      <span className="text-xs">{msg}</span>
+                    <li key={idx} className="flex items-start">
+                      {renderMessage(msg)}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
             
-            {selectedFile && (
-              <div className="text-sm text-white/80 border-t border-white/10 pt-3 w-full">
-                <span className="font-semibold text-white">{selectedFile.name}</span>
-                {sheetType && <span className="text-white/60"> · {sheetType.replace('_', ' ')}</span>}
-              </div>
-            )}
           </div>
 
           <div className="space-y-2">
@@ -345,19 +523,21 @@ const TableLoad: React.FC<TableLoadProps> = ({
             </div>
 
             <div className="flex items-button justify-center gap-2">
-              <button
-                type="button"
-                onClick={simulateImport}
-                disabled={status === 'uploading' || status === 'validating'}
-                className="px-4 py-2 rounded-md bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {status === 'uploading' || status === 'validating' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <ClipboardList className="w-4 h-4" />
-                )}
-                Importar
-              </button>
+              {!hideImportButton && (
+                <button
+                  type="button"
+                  onClick={simulateImport}
+                  disabled={status === 'uploading' || status === 'validating'}
+                  className="px-4 py-2 rounded-md bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {status === 'uploading' || status === 'validating' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ClipboardList className="w-4 h-4" />
+                  )}
+                  Importar
+                </button>
+              )}
 
               <button
                 type="button"
@@ -371,186 +551,43 @@ const TableLoad: React.FC<TableLoadProps> = ({
         </div>
 
         {/* Coluna Direita - Checklist Expandido com Tabela */}
-        <div className="lg:col-span-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-150px)] lg:overflow-y-auto">
-          <div className="bg-slate-900/70 border border-white/10 rounded-xl p-4">
-            {/* Tabela de Histórico */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left px-3 py-2 text-white/70 font-semibold">Data</th>
-                    <th className="text-left px-3 py-2 text-white/70 font-semibold">Arquivos</th>
-                    <th className="text-left px-3 py-2 text-white/70 font-semibold">Status</th>
-                    <th className="text-left px-3 py-2 text-white/70 font-semibold">Usuário</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/10">
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">03/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">funcionarios.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
+        <div className="lg:col-span-6 lg:sticky lg:top-24">
+          <div className="bg-slate-900/70 border border-white/10 rounded-xl overflow-x-auto h-full">
+            <table className="w-full text-xs">
+              <thead className="bg-purple-300/10">
+                <tr className="border-b border-white/10">
+                  <th className="px-1 py-1.5 text-white/70 font-semibold text-center">DATA</th>
+                  <th className="text-left px-1 py-1.5 text-white/70 font-semibold">BANCO</th>
+                  <th className="text-left px-1 py-1.5 text-white/70 font-semibold">ARQUIVO</th>
+                  <th className="text-left px-1 py-1.5 text-white/70 font-semibold">USUÁRIO</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {history.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-1 py-3 text-white/50 text-xs text-center">
+                      Nenhum registro de importação ainda.
                     </td>
-                    <td className="px-3 py-2 text-white/80">Administrador</td>
                   </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">02/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">horas_extras.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">RH Manager</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">01/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">folha_pagamento.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/30 text-amber-300">
-                        ⚠
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">Gerente RH</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">01/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">folha_pagamento.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/30 text-amber-300">
-                        ⚠
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">Gerente RH</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">01/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">folha_pagamento.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/30 text-amber-300">
-                        ⚠
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">Gerente RH</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">02/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">horas_extras.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">RH Manager</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">02/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">horas_extras.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">RH Manager</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">02/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">horas_extras.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">RH Manager</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">02/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">horas_extras.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">RH Manager</td>
-                  </tr>
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">02/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">horas_extras.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/30 text-emerald-300">
-                        ✓
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">RH Manager</td>
-                  </tr>                                                                                          
-                  <tr className="hover:bg-white/5 transition-colors">
-                    <td className="px-3 py-2 text-white/80">01/12/2025</td>
-                    <td className="px-3 py-2 text-white/80">folha_pagamento.xlsx</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-500/30 text-red-300">
-                        ✗ 
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-white/80">Gerente RH</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                ) : (
+                  history.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-white/5 transition-colors">
+                      <td className="px-1 py-1.5 text-white/80 text-center">{item.date}</td>
+                      <td className="px-1 py-1.5 text-white/80">{item.banco}</td>
+                      <td className="px-1 py-1.5 text-white/80">{item.arquivo}</td>
+                      <td className="px-1 py-1.5 text-white/80">{item.usuario}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
       {/* Mensagens, Erros e Tabela - Full Width Abaixo */}
       <div className="space-y-4">
-        {sheetHeaderError.length > 0 && (
-          <div className="bg-amber-500/10 border border-amber-400/60 rounded-xl p-4 space-y-2">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-white font-semibold">Campos obrigatórios faltando:</p>
-                <ul className="text-amber-200 text-sm mt-2 space-y-1">
-                  {sheetHeaderError.map((field, idx) => (
-                    <li key={idx} className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      {field}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {sheetData.length > 0 && validationErrors.length > 0 && (
-          <div className="bg-amber-500/10 border border-amber-400/60 rounded-xl p-4 space-y-2 max-h-[300px] overflow-y-auto">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-white font-semibold">{validationErrors.length} linha(s) com erro(s):</p>
-                <ul className="text-amber-200 text-xs mt-2 space-y-2">
-                  {validationErrors.slice(0, 20).map((error, idx) => (
-                    <li key={idx} className="space-y-1">
-                      <span className="text-amber-300 font-semibold">Linha {error.rowIndex}:</span>
-                      <ul className="ml-4 space-y-0.5">
-                        {error.errors.map((err, errIdx) => (
-                          <li key={errIdx} className="flex items-center gap-2">
-                            <span className="w-1 h-1 rounded-full bg-amber-400" />
-                            {err}
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-                </ul>
-                {validationErrors.length > 20 && (
-                  <p className="text-amber-300 text-xs mt-2">... e mais {validationErrors.length - 20} linha(s)</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Ocultando o detalhamento de erros por linha conforme solicitado */}
 
         {previewVisible && sheetData.length > 0 && (
           <div className="bg-slate-900/70 border border-white/10 rounded-xl p-4 space-y-3">

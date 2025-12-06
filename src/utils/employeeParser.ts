@@ -1,20 +1,20 @@
-﻿// Mapeamento de campos da planilha para banco de dados
+// Mapeamento de campos da planilha para banco de dados
 export const EMPLOYEE_FIELD_MAPPING = {
   // Campos obrigatórios (conforme SQL)
-  'Empresa': 'company',
-  'Cadastro': 'registration',
-  'Nome': 'name',
-  'CPF': 'cpf',
-  'Nascimento': 'date_birth',
-  'Admissão': 'date_hiring',
-  'Situação': 'status',
+  Empresa: 'company',
+  Cadastro: 'registration',
+  Nome: 'name',
+  CPF: 'cpf',
+  Nascimento: 'date_birth',
+  Admissão: 'date_hiring',
+  Situação: 'status',
   'Descrição (Situação)': 'description_status',
   'Data Afastamento': 'date_status',
   'Título Reduzido (Cargo)': 'role',
   'Descrição do Local': 'sector',
   'Descrição (Nacionalidade)': 'nationality',
   'Descrição (Instrução)': 'education',
-  'Sexo': 'sex',
+  Sexo: 'sex',
   'Descrição (Estado Civil)': 'marital',
   'Descrição (Raça/Etnia)': 'ethnicity',
   'Valor Salário': 'salary',
@@ -35,7 +35,7 @@ export const formatCPF = (cpf: any): string => {
 
 export const formatDate = (date: any): string => {
   if (!date) return ''
-  
+
   // Se for número (Excel serial date)
   if (typeof date === 'number') {
     // Converter Excel serial date para data JS
@@ -46,56 +46,56 @@ export const formatDate = (date: any): string => {
     if (formatted === '1899-12-30' || formatted === '0000-00-00') return ''
     return formatted
   }
-  
+
   // Se for string
   const dateStr = String(date).trim()
-  
+
   // Verifica se é "00/00/0000" ou "00-00-0000"
   if (dateStr === '00/00/0000' || dateStr === '00-00-0000' || dateStr === '0000-00-00') {
     return ''
   }
-  
+
   // Tenta formato dd/mm/aaaa ou dd/mm/yyyy
   if (dateStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
     const [day, month, year] = dateStr.split('/')
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
   }
-  
+
   // Se já estiver em ISO (YYYY-MM-DD)
   if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
     return dateStr
   }
-  
+
   return ''
 }
 
 export const formatSalary = (salary: any): string => {
   if (!salary && salary !== 0) return ''
-  
+
   let numValue: number
-  
-  // Se for string com formataÃ§Ã£o brasileira ###.###.##0,0000
+
+  // Se for string com formatação brasileira ###.###.##0,0000
   if (typeof salary === 'string') {
-    // Remove pontos de milhar e substitui vÃ­rgula por ponto
+    // Remove pontos de milhar e substitui vírgula por ponto
     numValue = parseFloat(String(salary).replace(/\./g, '').replace(',', '.'))
   } else {
     numValue = parseFloat(String(salary))
   }
-  
+
   if (isNaN(numValue)) return ''
-  
+
   // Formata para R$ com 2 casas decimais
   return `R$ ${numValue.toFixed(2).replace('.', ',')}`
 }
 
-// NormalizaÃ§ao para campos inteiros
+// Normalização para campos inteiros
 export const formatInteger = (value: any): string => {
   if (value === null || value === undefined) return ''
   const cleaned = String(value).replace(/\D/g, '')
   return cleaned
 }
 
-// Campos obrigatÃ³rios que devem estar presentes na planilha
+// Campos obrigatórios que devem estar presentes na planilha
 export const REQUIRED_FIELDS = [
   'Empresa',
   'Cadastro',
@@ -131,18 +131,19 @@ export const validateEmployeeRow = (row: Record<string, any>): { valid: boolean;
   if (!row['Empresa'] || String(row['Empresa']).trim() === '') errors.push('Empresa é obrigatória')
   if (!row['Cadastro'] || String(row['Cadastro']).trim() === '') errors.push('Cadastro é obrigatório')
   if (!row['Nome'] || String(row['Nome']).trim() === '') errors.push('Nome é obrigatório')
-  if (!row['CPF'] || String(row['CPF']).trim() === '') errors.push('CPF é obrigatório')
+/*   if (!row['CPF'] || String(row['CPF']).trim() === '') errors.push('Cpf é obrigatório')    */ 
   if (!row['Nascimento'] || String(row['Nascimento']).trim() === '') errors.push('Nascimento é obrigatório')
   if (!row['Admissão'] || String(row['Admissão']).trim() === '') errors.push('Admissão é obrigatória')
   if (!row['Situação'] || String(row['Situação']).trim() === '') errors.push('Situação é obrigatória')
-  if (!row['Título Reduzido (Cargo)'] || String(row['Título Reduzido (Cargo)']).trim() === '') errors.push('Cargo é obrigatório')
+  if (!row['Título Reduzido (Cargo)'] || String(row['Título Reduzido (Cargo)']).trim() === '')
+    errors.push('Cargo é obrigatório')
   if (!row['Descrição do Local'] || String(row['Descrição do Local']).trim() === '') errors.push('Setor é obrigatório')
   if (!row['Valor Salário'] && row['Valor Salário'] !== 0) errors.push('Salário é obrigatório')
 
-  // Validar e formatar CPF
+  // Validar CPF quando informado (não é obrigatório)
   if (row['CPF']) {
-    const cpf = String(row['CPF']).replace(/\D/g, '')
-    if (cpf.length !== 11) {
+    const cpfDigits = String(row['CPF']).replace(/\D/g, '')
+    if (cpfDigits.length !== 11) {
       errors.push('CPF inválido: deve ter 11 dígitos')
     }
   }
@@ -182,7 +183,7 @@ export const validateEmployeeRow = (row: Record<string, any>): { valid: boolean;
   if (row['Valor Salário']) {
     const formatted = formatSalary(row['Valor Salário'])
     if (!formatted) {
-      errors.push('Salário deve ser numérico')
+      errors.push('Valor Salário deve ser numérico')
     }
   }
 
@@ -212,4 +213,3 @@ export const formatRowData = (row: Record<string, any>): Record<string, any> => 
     'Valor Salário': formatSalary(row['Valor Salário']),
   }
 }
-
