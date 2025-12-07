@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { ArrowLeft, Check, CheckCircle2, ClipboardList, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react'
+import { ArrowLeft, Circle, CircleCheckBig, ClipboardList, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react'
 import { validateEmployeeSheet, validateEmployeeRow, REQUIRED_FIELDS, formatDate } from '../utils/employeeParser'
 import { insertEmployees, fetchEmployeeRegistrations } from '../services/employeeService'
 import { insertPayroll } from '../services/payrollService'
@@ -504,8 +504,8 @@ const TableLoad: React.FC<TableLoadProps> = ({
               )}
             </div>
 
-            <div className="flex flex-row items-end gap-3 flex-nowrap overflow-x-auto">
-              <div className="flex-1 min-w-[200px]">
+            <div className="flex flex-row items-end gap-3 flex-wrap w-full">
+              <div className="flex-1 min-w-[240px]">
                 <label className="block text-xs text-white/70 mb-1">Tipo de planilha</label>
                 <select
                   value={sheetType}
@@ -526,8 +526,8 @@ const TableLoad: React.FC<TableLoadProps> = ({
                   </option>
                 </select>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                {(sheetType === 'CADASTRO' || sheetType === 'FOLHA PGTO') && (
+              {(sheetType === 'CADASTRO' || sheetType === 'FOLHA PGTO') && (
+                <div className="flex items-center gap-3 shrink-0">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -535,30 +535,18 @@ const TableLoad: React.FC<TableLoadProps> = ({
                     title="Selecionar arquivo para upload"
                   >
                     <Upload className="w-5 h-5" />
+                    <span className="text-sm">Upload</span>
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="px-3 py-2 rounded-md bg-transparent border border-purple-400/70 text-purple-300 font-semibold hover:bg-purple-500/15 hover:border-purple-300/90 transition-all flex items-center gap-2 whitespace-nowrap"
-                  title="Ver tabela?"
-                >
-                  <input
-                    type="checkbox"
-                    className="w-5 h-5 accent-purple-500 bg-transparent border border-purple-400 rounded-sm focus:outline-none"
-                    aria-label="Acao futura"
-                    checked={showPreview}
-                    onChange={(e) => setShowPreview(e.target.checked)}
-                  />
-                </button>
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div
-            className={`border-2 border-dashed rounded-md p-2 flex flex-col items-center justify-start gap-3 ${
+            className={`w-full border-2 border-dashed rounded-md p-0 flex flex-col items-center justify-start gap-3 ${
               status === 'error' && !neutralLogStyle ? 'border-amber-400/60 bg-amber-500/5' : 'border-white/15 bg-white/5'
-            }`}
-            style={{ maxHeight: '260px' }}
+            } overflow-hidden`}
+            style={{ maxHeight: '180px', minHeight: '180px', backgroundColor: '#0c163d', color: '#cddcff' }}
           >
             <input
               ref={fileInputRef}
@@ -567,15 +555,34 @@ const TableLoad: React.FC<TableLoadProps> = ({
               accept=".xlsx,.xls,.csv"
               onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
             />
-            <div className="w-full space-y-2 max-h-[200px] overflow-y-auto pr-2">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-300" />
-                <p className="text-white font-semibold">Log ...</p>
+            <div className="w-full h-full flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-4 px-2 py-2 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <CircleCheckBig className="w-4 h-4 text-emerald-300" />
+                  <p className="text-white font-semibold text-sm">Status Operacao</p>
+                </div>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-white/80 text-xs cursor-pointer select-none"
+                  onClick={() => setShowPreview((prev) => !prev)}
+                  onKeyDown={(e) => e.key === 'Enter' && setShowPreview((prev) => !prev)}
+                  aria-pressed={showPreview}
+                >
+                  {showPreview ? (
+                    <CircleCheckBig className="w-4 h-4 text-emerald-300" />
+                  ) : (
+                    <Circle className="w-4 h-4 text-white" />
+                  )}
+                  <span className={showPreview ? 'text-emerald-200' : 'text-white/80'}>Ver tabela</span>
+                </button>
               </div>
-              {messages.length === 0 ? (
-                <p className="text-white/60 text-sm">Nenhuma mensagem ainda.</p>
-              ) : (
-                <ul className="text-white/80 text-sm space-y-1">
+              <div
+                className="custom-scroll log-scroll flex-1 min-h-0 max-h-[120px] overflow-y-auto rounded-md"
+              >
+                <ul className="text-white/80 text-xs space-y-1 list-none p-0 m-0">
+                  <li className="text-white/50" aria-label="Aguardando novas mensagens">
+                    <span className="blinking-cursor" aria-hidden="true" />
+                  </li>
 {messages.map((msg, idx) => (
   <li key={idx}>
     <LogItem message={msg} />
@@ -583,7 +590,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
 ))}
 
                 </ul>
-              )}
+              </div>
             </div>
           </div>
 
@@ -632,35 +639,37 @@ const TableLoad: React.FC<TableLoadProps> = ({
         </div>
 
         <div className="lg:col-span-6 lg:sticky lg:top-24">
-          <div className="bg-slate-900/70 border border-white/10 rounded-xl overflow-x-auto h-full">
-            <table className="w-full text-xs">
-              <thead className="bg-purple-300/20">
-                <tr className="border-b border-white/10">
-                  <th className="px-1 py-1.5 text-white/70 font-semibold text-center">DATA</th>
-                  <th className="px-1 py-1.5 text-white/70 font-semibold text-center">BANCO</th>
-                  <th className="px-1 py-1.5 text-white/70 font-semibold text-center">ARQUIVO</th>
-                  <th className="px-1 py-1.5 text-white/70 font-semibold text-center">USUARIO</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {history.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-1 py-3 text-white/50 text-xs text-center">
-                      Nenhum registro de Carga da tabela ainda.
-                    </td>
+            <div className="bg-slate-900/70 border border-white/10 rounded-xl h-full overflow-hidden">
+            <div className="overflow-x-auto overflow-y-auto max-h-[440px] min-h-0 custom-scroll">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 z-10 bg-emerald-800/95">
+                  <tr className="border-b border-white/10">
+                    <th className="px-1 py-1.5 text-white/70 font-semibold text-center">DATA</th>
+                    <th className="px-1 py-1.5 text-white/70 font-semibold text-center">BANCO</th>
+                    <th className="px-1 py-1.5 text-white/70 font-semibold text-center">ARQUIVO</th>
+                    <th className="px-1 py-1.5 text-white/70 font-semibold text-center">USUARIO</th>
                   </tr>
-                ) : (
-                  history.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-white/5 transition-colors">
-                      <td className="px-1 py-1.5 text-white/80 text-center">{item.date}</td>
-                      <td className="px-1 py-1.5 text-white/80">{item.banco}</td>
-                      <td className="px-1 py-1.5 text-white/80">{item.arquivo}</td>
-                      <td className="px-1 py-1.5 text-white/80">{item.usuario}</td>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {history.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-1 py-3 text-white/50 text-xs text-center">
+                        Nenhum registro de Carga da tabela ainda.
+                      </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    history.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-white/5 transition-colors">
+                        <td className="px-1 py-1.5 text-white/80 text-center">{item.date}</td>
+                        <td className="px-1 py-1.5 text-white/80">{item.banco}</td>
+                        <td className="px-1 py-1.5 text-white/80">{item.arquivo}</td>
+                        <td className="px-1 py-1.5 text-white/80">{item.usuario}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

@@ -7,39 +7,44 @@ interface LogItemProps {
 const LogItem: React.FC<LogItemProps> = ({ message }) => {
   const lower = message.toLowerCase()
 
-  const isSuccess = message.startsWith('OoO ')
+  const isSuccess = message.startsWith('OoO')
   const isError =
-    message.startsWith('XxX ') || lower.includes('campos obrigatorios faltando')
+    message.startsWith('XxX') || lower.includes('campos obrigatorios faltando')
   const isWarning = message.startsWith(':)')
-  const isInfo = !isSuccess && !isError && !isWarning
 
   const cleanMessage = message.replace(/^(OoO|XxX|\:\))\s*/, '')
-  const parts = cleanMessage.split(/(\([^)]*\))/g)
 
   const baseClass = 'text-xs flex items-start gap-1 text-white/80'
 
   if (isSuccess) {
     return (
       <span className={baseClass}>
-        <Check className="w-3 h-3 text-emerald-400 mt-0.5" />
+        <Check className="w-4 h-4 text-emerald-400 mt-0.5" />
         <span>{cleanMessage}</span>
       </span>
     )
   }
 
   if (isError) {
+    const start = cleanMessage.indexOf('(')
+    const end = cleanMessage.lastIndexOf(')')
+    const hasGroup = start !== -1 && end > start
+    const before = hasGroup ? cleanMessage.slice(0, start) : cleanMessage
+    const middle = hasGroup ? cleanMessage.slice(start, end + 1) : ''
+    const after = hasGroup ? cleanMessage.slice(end + 1) : ''
+
     return (
       <span className={baseClass}>
-        <X className="w-3 h-3 text-rose-400 mt-0.5 flex-shrink-0" />
+        <X className="w-4 h-4 text-rose-400 mt-0.5 flex-shrink-0" />
         <span>
-          {parts.map((part, idx) =>
-            part.startsWith('(') && part.endsWith(')') ? (
-              <span key={idx} className="text-rose-300">
-                {part}
-              </span>
-            ) : (
-              <span key={idx}>{part}</span>
-            )
+          {hasGroup ? (
+            <>
+              {before}
+              <span className="text-rose-300">{middle}</span>
+              {after}
+            </>
+          ) : (
+            cleanMessage
           )}
         </span>
       </span>
