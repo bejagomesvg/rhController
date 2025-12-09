@@ -200,15 +200,35 @@ export const fetchEmployeeRegistrations = async (
   try {
     const url = new URL(`${supabaseUrl}/rest/v1/employee`)
     url.searchParams.set('select', 'registration')
-    const res = await fetch(url.toString(), {
-      headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
-    })
-    if (!res.ok) {
-      console.error('Erro ao buscar registros existentes', await res.text())
-      return { ok: false, registrations: new Set() }
+
+    // Busca paginada para garantir que todos os registros venham, independente do limite do PostgREST.
+    const pageSize = 1000
+    let start = 0
+    const registrations = new Set<number>()
+
+    while (true) {
+      const rangeHeader = `${start}-${start + pageSize - 1}`
+      const res = await fetch(url.toString(), {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Range: rangeHeader,
+        },
+      })
+      if (!res.ok) {
+        console.error('Erro ao buscar registros existentes', await res.text())
+        return { ok: false, registrations: new Set() }
+      }
+      const rows = (await res.json()) as Array<{ registration: number }>
+      rows.forEach((r) => registrations.add(r.registration))
+
+      if (rows.length < pageSize) {
+        break // Última página
+      }
+      start += pageSize
     }
-    const rows = (await res.json()) as Array<{ registration: number }>
-    return { ok: true, registrations: new Set(rows.map((r) => r.registration)) }
+
+    return { ok: true, registrations }
   } catch (err) {
     console.error('Erro ao buscar registros existentes', err)
     return { ok: false, registrations: new Set() }

@@ -65,7 +65,7 @@ const PayrollConflictModal: React.FC<PayrollConflictModalProps> = ({
         }
         pushMessage(`OoO ${deleteResult.deleted} registro(s) excluido(s) da folha ref. ${payrollConflictRef}`)
         await insertHistory({
-            table: 'payroll',
+            table: payrollConflictRef ? `payroll Ref. ${payrollConflictRef}` : 'payroll',
             actions: 'Delete',
             file: selectedFile?.name || '-',
             user: userName || '-',
@@ -73,7 +73,7 @@ const PayrollConflictModal: React.FC<PayrollConflictModalProps> = ({
           }, supabaseUrl, supabaseKey)
         await onHistoryUpdate()
         dispatch({ type: 'PAYROLL_DELETE_SUCCESS' })
-        pushMessage('OoO Exclusão concluida. Voce pode agora importar os novos dados.')
+        pushMessage('OoO Exclusão concluida. Voce já pode importar a nova Folha Pgto.')
       } catch (error) {
         dispatch({ type: 'IMPORT_FAILURE', payload: { messages: [`XxX Erro ao excluir: ${(error as Error).message}`] } })
       }

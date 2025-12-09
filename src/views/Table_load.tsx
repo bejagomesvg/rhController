@@ -596,9 +596,11 @@ const TableLoad: React.FC<TableLoadProps> = ({
           return
         }
         finalMessages.push(`OoO Payroll: ${payrollResult.inserted} linha(s) inseridas.`)
+        const paymentValue = sheetData[0]?.['Pagamento']
+        const refMonthLog = getRefMonthYear(paymentValue)
         await insertHistory(
           {
-            table: 'payroll',
+            table: refMonthLog ? `payroll Ref. ${refMonthLog}` : 'payroll',
             actions: 'Inclusao',
             file: selectedFile?.name || '-',
             user: userName || '-',
