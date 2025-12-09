@@ -1,11 +1,4 @@
-export interface HistoryEntry {
-  id?: number
-  date: string
-  banco: string
-  acao: string
-  arquivo: string
-  usuario: string
-}
+import type { HistoryEntry } from '../models/history'
 
 const SMALLINT_MAX = 32767
 

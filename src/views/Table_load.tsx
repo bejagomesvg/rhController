@@ -11,7 +11,7 @@ import { validateEmployeeSheet, validateEmployeeRow, REQUIRED_FIELDS, formatDate
 import { insertEmployees, fetchEmployeeRegistrations } from '../services/employeeService'
 import { checkPayrollMonthExists, insertPayroll } from '../services/payrollService'
 import { insertOvertime, checkOvertimeDatesExist } from '../services/overtimeService'
-import type { HistoryEntry } from '../services/logService'
+import type { HistoryEntry } from '../models/history'
 import { fetchHistory, insertHistory } from '../services/logService'
 import ImportForm from '../components/ImportForm'
 import HistoryTable from '../components/HistoryTable'
@@ -321,7 +321,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
   const [currentPage, setCurrentPage] = useState(1)
   const [historySearchQuery, setHistorySearchQuery] = useState('')
   const [sortConfig, setSortConfig] = useState<{
-    key: keyof HistoryEntry
+    key: string
     direction: 'ascending' | 'descending'
   } | null>({ key: 'date', direction: 'descending' })
 
@@ -393,7 +393,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
 
-  const handleSort = (key: keyof HistoryEntry) => {
+  const handleSort = (key: string) => {
     let direction: 'ascending' | 'descending' = 'ascending'
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
       direction = 'descending'
@@ -438,6 +438,14 @@ const TableLoad: React.FC<TableLoadProps> = ({
   useEffect(() => {
     fetchAndUpdateHistory()
     employeeRegsCache.current = null // limpa cache ao montar para evitar dados stale entre sessões
+  }, [fetchAndUpdateHistory])
+
+  // Atualiza histórico periodicamente para refletir mudanças sem recarregar a página
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      fetchAndUpdateHistory().catch(() => undefined)
+    }, 15000) // 15s
+    return () => window.clearInterval(interval)
   }, [fetchAndUpdateHistory])
 
   useEffect(() => {

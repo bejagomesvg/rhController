@@ -1,5 +1,5 @@
 import React from 'react'
-import type { HistoryEntry } from '../services/logService'
+import type { HistoryEntry } from '../models/history'
 import { ChevronLeft, ChevronRight, Loader2, Search, X, ArrowUp, ArrowDown, FilePlusCorner, FileMinusCorner } from 'lucide-react'
 
 interface HistoryTableProps {
@@ -12,13 +12,13 @@ interface HistoryTableProps {
   onPageChange: (page: number) => void
   searchQuery: string
   onSearchChange: (query: string) => void
-  sortConfig: { key: keyof HistoryEntry; direction: 'ascending' | 'descending' } | null
-  onSort: (key: keyof HistoryEntry) => void
+  sortConfig: { key: string; direction: 'ascending' | 'descending' } | null
+  onSort: (key: string) => void
 }
 
 const SortableHeader: React.FC<{
   label: string
-  sortKey: keyof HistoryEntry
+  sortKey: string
   sortConfig: HistoryTableProps['sortConfig']
   onSort: HistoryTableProps['onSort']
   className?: string

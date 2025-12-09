@@ -35,3 +35,16 @@ export type UserRegistration = {
   database?: string | boolean
   table_load?: string | boolean
 }
+
+export type UserRow = {
+  id: number
+  name: string
+  username?: string
+  type_user: string
+  is_authorized: boolean
+  job_title?: string
+  allowed_sector?: string
+  security?: string
+  role?: string
+  sector?: string
+}

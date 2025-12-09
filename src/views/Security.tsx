@@ -18,21 +18,9 @@ import { loadSession } from '../services/sessionService'
 import { getFullModulesPayload, MODULE_MAPPING } from '../utils/moduleParser'
 import UserForm from '../components/UserForm'
 import type { NewUserData } from '../components/UserForm'
+import type { UserRow } from '../models/user'
 
 type SortKey = 'name' | 'type_user' | 'status' | 'role' | 'sector'
-
-type UserRow = {
-  id: number
-  name: string
-  username?: string
-  type_user: string
-  is_authorized: boolean
-  job_title?: string
-  allowed_sector?: string
-  security?: string
-  role?: string
-  sector?: string
-}
 
 interface SecurityProps {
   onBack: () => void

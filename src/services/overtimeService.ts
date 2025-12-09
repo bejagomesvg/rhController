@@ -1,40 +1,11 @@
 import { formatDate } from '../utils/employeeParser'
-
-export interface OvertimePayload {
-  registration: number | null
-  name: string | null
-  date_: string | null
-  hours60: string | null
-  hours100: string | null
-  type_registration: string
-  user_registration: string | null
-  date_registration: string
-}
-
-export interface OvertimeResult {
-  ok: boolean
-  inserted: number
-  error?: string
-}
-
-export interface OvertimeDateCheck {
-  ok: boolean
-  exists: boolean
-  error?: string
-}
-
-export interface OvertimeDatesCheck {
-  ok: boolean
-  exists: boolean
-  dates?: string[]
-  error?: string
-}
-
-export interface OvertimeDeleteResult {
-  ok: boolean
-  deleted: number
-  error?: string
-}
+import type {
+  OvertimePayload,
+  OvertimeResult,
+  OvertimeDateCheck,
+  OvertimeDatesCheck,
+  OvertimeDeleteResult,
+} from '../models/overtime'
 
 const parseNumber = (val: any): number | null => {
   const num = Number(String(val ?? '').replace(/\D/g, ''))
