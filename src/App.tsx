@@ -1,6 +1,28 @@
 import React, { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import { AlertTriangle, Check, Loader2, LockKeyhole, ShieldCheck, ShieldUser, UserRound, ArrowLeft, Table } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  Loader2,
+  LockKeyhole,
+  ShieldCheck,
+  ShieldUser,
+  UserRound,
+  ArrowLeft,
+  Table,
+  Users,
+  FileText,
+  Award,
+  Calendar,
+  TrendingUp,
+  MessageCircle,
+  HeartPulse,
+  Gift,
+  Server,
+  Code2,
+  Database,
+  FactoryIcon,
+} from 'lucide-react'
 import Dashboard from './views/Dashboard'
 import './style.css'
 import type { UserRegistration } from './models/user'
@@ -16,6 +38,7 @@ import {
 import { clearSession, loadSession, saveSession } from './services/sessionService'
 import Security from './views/Security'
 import TableLoad from './views/Table_load'
+import Operations from './views/Operations'
 
 type Mode = 'login' | 'set-password' | 'dashboard' | 'security'
 
@@ -65,6 +88,7 @@ export function App(): ReactElement {
         security: currentUser.security,
         database: currentUser.database,
         table_load: currentUser.table_load,
+        operations: currentUser.operations,
       }
     : undefined
 
@@ -270,7 +294,21 @@ export function App(): ReactElement {
   const cardRing = isSetPassword || isDashboard ? 'ring-emerald-200/10' : 'ring-rose-200/10'
   const cardMaxWidth = isDashboard ? 'max-w-5xl' : 'max-w-md'
   const accentIconMap: Record<string, any> = {
+    // HR
+    recruitment: Users,
+    payroll: FileText,
+    training: Award,
+    shift_schedule_and_vacation: Calendar,
+    evaluation: TrendingUp,
+    communication: MessageCircle,
+    health_and_safety: HeartPulse,
+    benefits: Gift,
+    operations: FactoryIcon,
+    // Tech
+    infrastructure: Server,
     security: ShieldCheck,
+    development: Code2,
+    database: Database,
     table_load: Table,
   }
 
@@ -603,6 +641,14 @@ export function App(): ReactElement {
                 <TableLoad
                   onBack={() => setMode('dashboard')}
                   userName={currentUser?.username || currentUser?.name || 'Usuario'}
+                  userRole={currentUser?.type_user || 'Perfil nao informado'}
+                  title={securityCard?.title}
+                  description={securityCard?.description}
+                />
+              ) : securityCard?.accent === 'operations' ? (
+                <Operations
+                  onBack={() => setMode('dashboard')}
+                  userName={currentUser?.name || currentUser?.username || 'Usuario'}
                   userRole={currentUser?.type_user || 'Perfil nao informado'}
                   title={securityCard?.title}
                   description={securityCard?.description}

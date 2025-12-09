@@ -45,7 +45,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     {
       key: 'payroll' as const,
       title: 'Folha de Pagamento',
-      description: 'Controle salarial e benefícios',
       icon: <FileText className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-purple-500 to-indigo-600',
     },
@@ -92,12 +91,12 @@ const Dashboard: React.FC<DashboardProps> = ({
       color: 'bg-gradient-to-br from-violet-400 to-purple-600',
     },
         {
-      key: 'operations' as const,
-      title: 'Operações',
-      description: 'Gestão de operações RH, Produção e Controle de Horas Extras',
-      icon: <FactoryIcon className="w-5 h-5 text-white" />,
-      color: 'bg-gradient-to-br from-violet-400 to-purple-600',
-    },
+          key: 'operations' as const,
+          title: 'Operações',
+          description: 'Gestão de operações RH e Produção.',
+          icon: <FactoryIcon className="w-5 h-5 text-white" />,
+          color: 'bg-gradient-to-br from-yellow-400 to-orange-500',
+        },
   ]
 
     const techCards = [
@@ -186,6 +185,16 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div
               key={card.title}
               className={`${card.color} w-full rounded-md p-2 shadow-md shadow-black/30 transform hover:-translate-y-1 hover:shadow-2xl transition-all duration-300 cursor-pointer group`}
+              onClick={
+                // If a card provides its own onClick, use it. Otherwise handle special HR modules.
+                // For 'operations' we reuse onOpenSecurity to switch to the security/module view in App.
+                // Use a runtime check to avoid TypeScript property errors.
+                'onClick' in card
+                  ? (card as any).onClick
+                  : card.key === 'operations'
+                  ? () => onOpenSecurity?.({ title: card.title, description: card.description, accent: 'operations' })
+                  : undefined
+              }
             >
               <div className="flex items-start gap-3">
                 <div className="bg-white/20 w-10 h-10 shrink-0 rounded-full flex items-center justify-center backdrop-blur-sm group-hover:scale-110 transition-transform">

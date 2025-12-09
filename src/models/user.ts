@@ -12,7 +12,7 @@ export type ModuleKey =
   | 'security'
   | 'database'
   | 'table_load'
-    'operations'
+  | 'operations'
 
 export type UserRegistration = {
   id: number
