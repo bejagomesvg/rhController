@@ -13,11 +13,13 @@ import { checkPayrollMonthExists, insertPayroll } from '../services/payrollServi
 import { insertOvertime, checkOvertimeDatesExist } from '../services/overtimeService'
 import type { HistoryEntry } from '../models/history'
 import { fetchHistory, insertHistory } from '../services/logService'
+import { transformOvertimeApuracao, type OvertimeTransformResult } from '../utils/overtimeTransformer'
 import ImportForm from '../components/ImportForm'
 import HistoryTable from '../components/HistoryTable'
 import DataPreview from '../components/DataPreview'
 import PayrollConflictModal from '../components/PayrollConflictModal'
 import OvertimeConflictModal from '../components/OvertimeConflictModal'
+import OvertimeTransformModal from '../components/OvertimeTransformModal'
 
 export interface RowError {
   rowIndex: number
@@ -302,8 +304,8 @@ const TableLoad: React.FC<TableLoadProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const supportedSheets = ['CADASTRO', 'FOLHA PGTO', 'HORAS EXTRAS'] as const
-  const requiredFolhaHeaders = ['cadastro', 'Colaborador', 'Evento', 'Pagamento', 'Referencia', 'valor']
-  const requiredOvertimeHeaders = ['Data', 'Cadastro', 'Nome', 'Hrs 100', 'Hrs 60']
+  const requiredFolhaHeaders = ['cadastro', 'Colaborador', 'Evento', 'Pagamento', 'Referencia', 'valor'] // prettier-ignore
+  const requiredOvertimeHeaders = ['Data', 'Cadastro', 'Nome', '303', '304', '505', '506', '511', '512'] // prettier-ignore
   const ITEMS_PER_PAGE = 10
 
   const [state, dispatch] = useReducer(tableLoadReducer, initialState)
@@ -324,6 +326,10 @@ const TableLoad: React.FC<TableLoadProps> = ({
     key: string
     direction: 'ascending' | 'descending'
   } | null>({ key: 'date', direction: 'descending' })
+  const [overtimeTransformResult, setOvertimeTransformResult] = useState<OvertimeTransformResult | null>(null)
+  const [overtimeTransformError, setOvertimeTransformError] = useState<string | null>(null)
+  const [showOvertimeTransform, setShowOvertimeTransform] = useState(false)
+  const [overtimeTransformFile, setOvertimeTransformFile] = useState<string | null>(null)
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
   const supabaseKey = import.meta.env.VITE_SUPABASE_KEY
@@ -478,7 +484,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
     }
   }, [status, importFinished, payrollDeletedSuccessfully, messages, payrollConflictRef])
 
-  const handleFileSelect = (file: File | null) => {
+  const handleFileSelect = async (file: File | null) => {
     if (sheetType && !isSupportedSheet) {
       pushMessage(`Regras para "${sheetType}" ainda NAO implementadas.`)
       dispatch({ type: 'SELECT_FILE', payload: null })
@@ -486,8 +492,44 @@ const TableLoad: React.FC<TableLoadProps> = ({
       return
     }
     dispatch({ type: 'SELECT_FILE', payload: file })
+    if (!file) {
+      setOvertimeTransformResult(null)
+      setOvertimeTransformError(null)
+      setOvertimeTransformFile(null)
+      setShowOvertimeTransform(false)
+      return
+    }
     if (file) {
       pushMessage(`Arquivo selecionado: ${file.name}`)
+
+      if (isOvertime) {
+        try {
+          const buffer = await file.arrayBuffer()
+          const transformed = transformOvertimeApuracao(buffer)
+          setOvertimeTransformResult(transformed)
+          setOvertimeTransformError(null)
+          setOvertimeTransformFile(file.name)
+          setShowOvertimeTransform(true)
+          if (transformed.rows.length === 0) {
+            pushMessage('XxX Transformacao retornou 0 linhas.')
+          } else {
+            pushMessage(`OoO Transformacao pronta (${transformed.rows.length} linha(s)).`)
+          }
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : 'Falha ao transformar horas extras.'
+          setOvertimeTransformError(errMsg)
+          setOvertimeTransformResult(null)
+          setOvertimeTransformFile(file.name)
+          setShowOvertimeTransform(true)
+          pushMessage(`XxX Erro ao transformar horas extras: ${errMsg}`)
+        }
+      } else {
+        setOvertimeTransformResult(null)
+        setOvertimeTransformError(null)
+        setOvertimeTransformFile(null)
+        setShowOvertimeTransform(false)
+      }
+
       readExcelFile(file)
     }
   }
@@ -629,16 +671,23 @@ const TableLoad: React.FC<TableLoadProps> = ({
     const hasData = normalizedCols.some((c) => c === 'data')
     const hasCadastro = normalizedCols.some((c) => c === 'cadastro')
     const hasNome = normalizedCols.some((c) => c === 'nome')
-    // Aceita qualquer variante que contenha o número da hora, mesmo que "hrs"/"hr" não venham.
-    const hasHrs100 = normalizedCols.some((c) => c.includes('100'))
-    const hasHrs60 = normalizedCols.some((c) => c.includes('60'))
+    const has303 = normalizedCols.some((c) => c === '303')
+    const has304 = normalizedCols.some((c) => c === '304')
+    const has505 = normalizedCols.some((c) => c === '505')
+    const has506 = normalizedCols.some((c) => c === '506')
+    const has511 = normalizedCols.some((c) => c === '511')
+    const has512 = normalizedCols.some((c) => c === '512')
 
     const missingOvertime: string[] = []
     if (!hasData) missingOvertime.push('Data')
     if (!hasCadastro) missingOvertime.push('Cadastro')
     if (!hasNome) missingOvertime.push('Nome')
-    if (!hasHrs100) missingOvertime.push('Hrs 100')
-    if (!hasHrs60) missingOvertime.push('Hrs 60')
+    if (!has303) missingOvertime.push('303')
+    if (!has304) missingOvertime.push('304')
+    if (!has505) missingOvertime.push('505')
+    if (!has506) missingOvertime.push('506')
+    if (!has511) missingOvertime.push('511')
+    if (!has512) missingOvertime.push('512')
 
     if (missingOvertime.length > 0) {
       dispatchHeaderError(missingOvertime)
@@ -682,27 +731,39 @@ const TableLoad: React.FC<TableLoadProps> = ({
       return { ok: true, paused: true }
     }
 
-    const overtimeOrder = ['Data', 'Cadastro', 'Nome', 'Hrs 100', 'Hrs 60']
+    const overtimeOrder = ['Data', 'Cadastro', 'Nome', '303', '304', '505', '506', '511', '512']
     const ordered = overtimeOrder.filter((c) => cols.includes(c))
     const remaining = cols.filter((c) => !ordered.includes(c))
 
     const normalized = jsonData.map((row) => {
       const cadastroKey = Object.keys(row).find((k) => k.toLowerCase() === 'cadastro')
       const dataKey = Object.keys(row).find((k) => k.toLowerCase() === 'data')
-      const hours100Key = Object.keys(row).find((k) => k.toLowerCase().includes('100'))
-      const hours60Key = Object.keys(row).find((k) => k.toLowerCase().includes('60'))
+      const key303 = Object.keys(row).find((k) => normalizeHeader(k) === '303')
+      const key304 = Object.keys(row).find((k) => normalizeHeader(k) === '304')
+      const key505 = Object.keys(row).find((k) => normalizeHeader(k) === '505')
+      const key506 = Object.keys(row).find((k) => normalizeHeader(k) === '506')
+      const key511 = Object.keys(row).find((k) => normalizeHeader(k) === '511')
+      const key512 = Object.keys(row).find((k) => normalizeHeader(k) === '512')
 
       const cadastroNum = cadastroKey ? Number(String(row[cadastroKey]).replace(/\D/g, '')) : row['Cadastro']
       const dataIso = formatDate(row[dataKey || 'Data'])
-      const hours100Preview = formatTimePreview(hours100Key ? row[hours100Key] : row['Hrs 100%'])
-      const hours60Preview = formatTimePreview(hours60Key ? row[hours60Key] : row['Hrs 60%'])
+      const preview303 = formatTimePreview(key303 ? row[key303] : row['303'])
+      const preview304 = formatTimePreview(key304 ? row[key304] : row['304'])
+      const preview505 = formatTimePreview(key505 ? row[key505] : row['505'])
+      const preview506 = formatTimePreview(key506 ? row[key506] : row['506'])
+      const preview511 = formatTimePreview(key511 ? row[key511] : row['511'])
+      const preview512 = formatTimePreview(key512 ? row[key512] : row['512'])
 
       return {
         ...row,
         Cadastro: cadastroNum,
         Data: dataIso || row[dataKey || 'Data'],
-        'Hrs 100': hours100Preview,
-        'Hrs 60': hours60Preview,
+        '303': preview303,
+        '304': preview304,
+        '505': preview505,
+        '506': preview506,
+        '511': preview511,
+        '512': preview512,
       }
     })
 
@@ -982,6 +1043,18 @@ const TableLoad: React.FC<TableLoadProps> = ({
       </div>
       </div>
 
+      {(overtimeTransformResult || overtimeTransformError) && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowOvertimeTransform(true)}
+            className="px-3 py-2 rounded-md bg-blue-500/20 border border-blue-400/60 text-blue-200 text-sm font-semibold hover:bg-blue-500/30 transition-colors"
+          >
+            Ver transformação HORAS EXTRAS
+          </button>
+        </div>
+      )}
+
       <DataPreview
         show={showPreview}
         data={sheetData}
@@ -1007,10 +1080,15 @@ const TableLoad: React.FC<TableLoadProps> = ({
         supabaseUrl={supabaseUrl}
         supabaseKey={supabaseKey}
       />
+      <OvertimeTransformModal
+        open={showOvertimeTransform}
+        onClose={() => setShowOvertimeTransform(false)}
+        result={overtimeTransformResult}
+        fileName={overtimeTransformFile || undefined}
+        error={overtimeTransformError}
+      />
     </>
   )
 }
 
 export default TableLoad
-
-

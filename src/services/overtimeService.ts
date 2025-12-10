@@ -12,28 +12,17 @@ const parseNumber = (val: any): number | null => {
   return Number.isNaN(num) ? null : num
 }
 
-const formatTimeFromSeconds = (totalSeconds: number): string => {
-  const seconds = Math.max(0, Math.round(totalSeconds))
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  return `${hours}:${pad2(minutes)}:${pad2(secs)}`
-}
-
-const parseTimeValue = (val: any): string | null => {
+const parseTimeToSeconds = (val: any): number | null => {
   if (val === null || val === undefined || val === '') return null
 
-  // Excel numeric time: fração de dia (0-1) ou dias inteiros (>1) quando há mais de 24h.
   if (typeof val === 'number') {
-    const totalSeconds = val * 24 * 60 * 60 // converte dias -> segundos (ex: 1.0833 dia = 26h)
-    return formatTimeFromSeconds(totalSeconds)
+    if (!Number.isFinite(val)) return null
+    return Math.round(val * 24 * 60 * 60)
   }
 
   const raw = String(val).trim()
   if (!raw) return null
 
-  // "HH:MM" ou "HH:MM:SS" (pode ter horas > 24)
   const colonMatch = raw.match(/^(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?$/)
   if (colonMatch) {
     const [, h, m, s] = colonMatch
@@ -41,16 +30,24 @@ const parseTimeValue = (val: any): string | null => {
     const minutes = Number(m)
     const seconds = s ? Number(s) : 0
     if ([hours, minutes, seconds].some((n) => Number.isNaN(n))) return null
-    return formatTimeFromSeconds(hours * 3600 + minutes * 60 + seconds)
+    return hours * 3600 + minutes * 60 + seconds
   }
 
-  // Horas decimais "2,5" ou "2.5" (assume horas)
   const decimal = Number(raw.replace(',', '.'))
   if (!Number.isNaN(decimal)) {
-    return formatTimeFromSeconds(decimal * 3600)
+    return Math.round(decimal * 3600)
   }
 
   return null
+}
+
+const formatTimeFromSeconds = (totalSeconds: number): string => {
+  const seconds = Math.max(0, Math.round(totalSeconds))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  return `${hours}:${pad2(minutes)}:${pad2(secs)}`
 }
 
 const parseDateIso = (val: any): string | null => {
@@ -191,17 +188,28 @@ export const insertOvertime = async (
   }
 
   const payload: OvertimePayload[] = data.map((row) => {
-    const cadastroKey = Object.keys(row).find((k) => k.toLowerCase() === 'cadastro') || 'cadastro'
+    const cadastroKey = Object.keys(row).find((k) => k.toLowerCase() === 'cadastro') || 'Cadastro'
     const dateKey = Object.keys(row).find((k) => k.toLowerCase() === 'data') || 'Data'
-    const hours100Key = Object.keys(row).find((k) => k.toLowerCase().includes('100')) || 'Hrs 100%'
-    const hours60Key = Object.keys(row).find((k) => k.toLowerCase().includes('60')) || 'Hrs 60%'
+    const nameKey = Object.keys(row).find((k) => k.toLowerCase() === 'nome') || 'Nome'
+
+    const total100Seconds = ['303', '304', '511', '512'].reduce((acc, code) => {
+      const key = Object.keys(row).find((k) => k.toLowerCase() === code.toLowerCase()) || code
+      const seconds = parseTimeToSeconds(row[key])
+      return acc + (seconds ?? 0)
+    }, 0)
+
+    const total60Seconds = ['505', '506'].reduce((acc, code) => {
+      const key = Object.keys(row).find((k) => k.toLowerCase() === code.toLowerCase()) || code
+      const seconds = parseTimeToSeconds(row[key])
+      return acc + (seconds ?? 0)
+    }, 0)
 
     return {
       registration: parseNumber(row[cadastroKey]),
-      name: row['Nome'] ? String(row['Nome']).trim() : row['name'] ? String(row['name']).trim() : null,
+      name: row[nameKey] ? String(row[nameKey]).trim() : row['name'] ? String(row['name']).trim() : null,
       date_: parseDateIso(row[dateKey]),
-      hours100: parseTimeValue(row[hours100Key]),
-      hours60: parseTimeValue(row[hours60Key]),
+      hours100: total100Seconds > 0 ? formatTimeFromSeconds(total100Seconds) : null,
+      hours60: total60Seconds > 0 ? formatTimeFromSeconds(total60Seconds) : null,
       type_registration: 'Importado',
       user_registration: userName || null,
       date_registration: new Date().toISOString(),
