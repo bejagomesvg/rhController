@@ -1,27 +1,5 @@
 import type { HistoryEntry } from '../models/history'
 
-const SMALLINT_MAX = 32767
-
-const getNextLogId = async (supabaseUrl: string, supabaseKey: string): Promise<number | null> => {
-  try {
-    const url = new URL(`${supabaseUrl}/rest/v1/log_table_load`)
-    url.searchParams.set('select', 'id')
-    url.searchParams.set('order', 'id.desc')
-    url.searchParams.set('limit', '1')
-    const res = await fetch(url.toString(), {
-      headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
-    })
-    if (!res.ok) return null
-    const data = (await res.json()) as Array<{ id: number }>
-    const next = data.length > 0 ? Number(data[0].id || 0) + 1 : 1
-    if (Number.isNaN(next) || next > SMALLINT_MAX) return null
-    return next
-  } catch (error) {
-    console.error('Erro ao calcular proximo id do log', error)
-    return null
-  }
-}
-
 export const fetchHistory = async (
   supabaseUrl?: string,
   supabaseKey?: string

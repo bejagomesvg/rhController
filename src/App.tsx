@@ -71,6 +71,8 @@ export function App(): ReactElement {
   })
   const [pendingUser, setPendingUser] = useState<{ id: number; username: string } | null>(null)
   const [currentUser, setCurrentUser] = useState<UserRegistration | null>(savedSession)
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  const supabaseKey = import.meta.env.VITE_SUPABASE_KEY
   const isSetPassword = mode === 'set-password'
   const isDashboard = mode === 'dashboard' || mode === 'security'
   const allowedModules = currentUser
@@ -292,7 +294,7 @@ export function App(): ReactElement {
   }, [currentUser?.username])
 
   const cardRing = isSetPassword || isDashboard ? 'ring-emerald-200/10' : 'ring-rose-200/10'
-  const cardMaxWidth = isDashboard ? 'max-w-5xl' : 'max-w-md'
+  const cardMaxWidth = isDashboard ? 'max-w-5xl md:max-w-6xl' : 'max-w-md'
   const accentIconMap: Record<string, any> = {
     // HR
     recruitment: Users,
@@ -318,10 +320,10 @@ export function App(): ReactElement {
   const accentColor = securityCard?.accent ?? '#22c55e'
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-5 py-[15px]">
       <div className={`w-full ${cardMaxWidth} z-10`}>
         <div
-          className={`bg-slate-900/65 backdrop-blur-md border border-white/15 rounded-2xl shadow-2xl p-7 md:p-8 relative ring-1 ${cardRing}`}
+          className={`bg-slate-900/65 backdrop-blur-md border border-white/15 rounded-2xl shadow-2xl px-5 md:px-6 py-[15px] relative ring-1 ${cardRing}`}
         >
           <div className={`flex items-center justify-center ${isDashboard ? 'mb-0' : 'mb-6'}`}>
             <div
@@ -652,6 +654,8 @@ export function App(): ReactElement {
                   userRole={currentUser?.type_user || 'Perfil nao informado'}
                   title={securityCard?.title}
                   description={securityCard?.description}
+                  supabaseUrl={supabaseUrl}
+                  supabaseKey={supabaseKey}
                 />
               ) : (
                 <Security
@@ -665,14 +669,9 @@ export function App(): ReactElement {
             </div>
           )}
 
-          <div className="w-full h-px bg-white/20 mt-10" />
-          <p className="text-center text-white/70 text-xs mt-3">&copy; rhControle - Version 2025.1</p>
+          <p className="text-center text-white/70 text-xs mt-1">&copy; rhControle - Version 2025.1</p>
         </div>
       </div>
     </div>
   )
 }
-
-
-
-
