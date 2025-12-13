@@ -6,8 +6,6 @@ const buildSupabaseQuery = (
   basePath: string,
   {
     filterText,
-    filterCompany,
-    filterSector,
     allowedRegistrations,
   }: {
     filterText?: string
@@ -17,14 +15,6 @@ const buildSupabaseQuery = (
   },
 ) => {
   const url = new URL(basePath)
-
-  if (filterCompany) {
-    url.searchParams.set('company', `eq.${filterCompany}`)
-  }
-
-  if (filterSector) {
-    url.searchParams.set('sector', `eq.${filterSector}`)
-  }
 
   if (allowedRegistrations && allowedRegistrations.length > 0) {
     url.searchParams.set('registration', `in.(${allowedRegistrations.join(',')})`)
