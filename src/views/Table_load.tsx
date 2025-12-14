@@ -606,12 +606,16 @@ const TableLoad: React.FC<TableLoadProps> = ({
     }
 
     // Convert date fields from Excel serial number to readable format
-    const formattedData = normalizedData.map(row => ({
+    const formattedData = normalizedData.map((row) => ({
       ...row,
-      data_nascimento: row.data_nascimento ? convertExcelDate(row.data_nascimento) : row.data_nascimento,
-      data_contratacao: row.data_contratacao ? convertExcelDate(row.data_contratacao) : row.data_contratacao,
-      data_situacao: row.data_situacao ? convertExcelDate(row.data_situacao) : row.data_situacao,
-    }));
+      // Usa os nomes canônicos (Nascimento/Admissao/Data Afastamento) para que o preview
+      // mostre o mesmo que será persistido.
+      Nascimento: row['Nascimento'] ? convertExcelDate(row['Nascimento'] as number) : row['Nascimento'],
+      Admissao: row['Admissao'] ? convertExcelDate(row['Admissao'] as number) : row['Admissao'],
+      'Data Afastamento': row['Data Afastamento']
+        ? convertExcelDate(row['Data Afastamento'] as number)
+        : row['Data Afastamento'],
+    }))
 
     const displayColumns = REQUIRED_FIELDS.filter((field) => canonicalCols.has(field))
     dispatch({ type: 'FILE_READ_SUCCESS', payload: { data: formattedData, columns: displayColumns, messages: [], rowErrors } })

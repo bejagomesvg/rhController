@@ -3,7 +3,15 @@ import {
   ArrowLeft,
   Users,
   DollarSign,
+  Settings,
+  Bell,
   FileText,
+  ArrowUp,
+  ArrowDown,
+  Edit,
+  Trash2,
+  Check,
+  X,
   CalendarDays,
   RotateCw,
   CalendarX,
@@ -20,7 +28,6 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
-  Legend,
   LabelList,
   Cell,
 } from 'recharts'
@@ -40,6 +47,8 @@ const sidebarItems = [
   { key: 'folha', label: 'Folha Mensal', icon: FileText },
   { key: 'custos', label: 'Custos', icon: DollarSign },
   { key: 'afastamentos', label: 'Afastamentos', icon: CalendarDays },
+  { key: 'alertas', label: 'Alertas', icon: Bell },
+  { key: 'config', label: 'Configuração', icon: Settings },
 ]
 
 type PayrollStats = {
@@ -50,6 +59,7 @@ type PayrollStats = {
 }
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const ACTIVE_TAB_KEY = 'payroll-active-tab'
 
 const Payroll: React.FC<PayrollProps> = ({
   onBack,
@@ -61,7 +71,11 @@ const Payroll: React.FC<PayrollProps> = ({
   supabaseKey,
 }) => {
   const currentDate = new Date()
-  const [active, setActive] = useState<'folha' | 'custos' | 'afastamentos'>('folha')
+  const [active, setActive] = useState<'folha' | 'custos' | 'afastamentos' | 'alertas' | 'config'>(() => {
+    if (typeof window === 'undefined') return 'folha'
+    const saved = window.localStorage.getItem(ACTIVE_TAB_KEY)
+    return saved === 'folha' || saved === 'custos' || saved === 'afastamentos' || saved === 'alertas' || saved === 'config' ? saved : 'folha'
+  })
   const [filterYear, setFilterYear] = useState(currentDate.getFullYear().toString())
   const [filterMonth, setFilterMonth] = useState(String(currentDate.getMonth() + 1))
   const [filterCompany, setFilterCompany] = useState('')
@@ -71,6 +85,10 @@ const Payroll: React.FC<PayrollProps> = ({
   const [companies, setCompanies] = useState<string[]>([])
   const [sectors, setSectors] = useState<string[]>([])
   const [activeEmployees, setActiveEmployees] = useState(0)
+  const [activeEmployeesList, setActiveEmployeesList] = useState<any[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editStatusValue, setEditStatusValue] = useState<string>('')
+  const [editDateValue, setEditDateValue] = useState<string>('')
   const [admissionsCount, setAdmissionsCount] = useState(0)
   const [dismissalsCount, setDismissalsCount] = useState(0)
   const [stats, setStats] = useState<PayrollStats>({
@@ -84,6 +102,14 @@ const Payroll: React.FC<PayrollProps> = ({
   const [sectorSummary, setSectorSummary] = useState<Array<{ label: string; totalValue: number }>>([])
   const [sectorEmployeeSummary, setSectorEmployeeSummary] = useState<Array<{ label: string; count: number }>>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [nameFilter, setNameFilter] = useState('')
+  const [activeSort, setActiveSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACTIVE_TAB_KEY, active)
+    }
+  }, [active])
 
   const normalize = (val: string | number | null | undefined) => String(val ?? '').trim().toLowerCase()
   const formatSector = (val: string | null | undefined) => {
@@ -111,6 +137,164 @@ const Payroll: React.FC<PayrollProps> = ({
   const formatCurrency = (val: number) => {
     const safe = Number.isFinite(val) ? val : 0
     return safe.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
+  }
+
+  const formatDateShort = (val?: string | null) => {
+    if (!val) return '-'
+    const d = new Date(val)
+    if (Number.isNaN(d.getTime())) return String(val)
+    return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
+  }
+  const refLabel = `${filterMonth.padStart(2, '0')}/${filterYear}`
+
+  const toIsoFromBr = (val: string): string | null => {
+    const match = val.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    if (!match) return null
+    const [, dd, mm, yyyy] = match
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  const maskDateInput = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 8)
+    const parts = []
+    if (digits.length > 0) parts.push(digits.slice(0, 2))
+    if (digits.length > 2) parts.push(digits.slice(2, 4))
+    if (digits.length > 4) parts.push(digits.slice(4, 8))
+    return parts.join('/')
+  }
+
+  const filteredActiveList = useMemo(() => {
+    const q = nameFilter.trim().toLowerCase()
+    if (!q) return activeEmployeesList
+    return activeEmployeesList.filter((row) => {
+      const nameVal = String(row.name || '').toLowerCase()
+      const regVal = String(row.registration || '').toLowerCase()
+      return nameVal.includes(q) || regVal.includes(q)
+    })
+  }, [activeEmployeesList, nameFilter])
+
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    activeEmployeesList.forEach((row) => {
+      const key = row.status === null || row.status === undefined ? '-' : String(row.status)
+      counts.set(key, (counts.get(key) || 0) + 1)
+    })
+    return Array.from(counts.entries())
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => {
+        const na = Number(a.status)
+        const nb = Number(b.status)
+        if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb
+        return a.status.localeCompare(b.status)
+      })
+  }, [activeEmployeesList])
+
+  const sortedActiveList = useMemo(() => {
+    if (!activeSort) return filteredActiveList
+    const { key, direction } = activeSort
+    const parseVal = (v: any) => {
+      if (v === null || v === undefined) return ''
+      const num = Number(v)
+      if (!Number.isNaN(num)) return num
+      // tenta data
+      const d = new Date(v)
+      if (!Number.isNaN(d.getTime())) return d.getTime()
+      return String(v).toLowerCase()
+    }
+    return [...filteredActiveList].sort((a, b) => {
+      const va = parseVal(a[key])
+      const vb = parseVal(b[key])
+      if (va < vb) return direction === 'asc' ? -1 : 1
+      if (va > vb) return direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [filteredActiveList, activeSort])
+
+  const handleActiveSort = (key: string) => {
+    setActiveSort((prev) => {
+      if (prev?.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { key, direction: 'asc' }
+    })
+  }
+
+  const statusCountRows = useMemo(() => {
+    const rows: Array<Array<{ status: string; count: number }>> = []
+    const chunkSize = 3
+    for (let i = 0; i < statusCounts.length; i += chunkSize) {
+      rows.push(statusCounts.slice(i, i + chunkSize))
+    }
+    return rows
+  }, [statusCounts])
+
+  const handleStartEdit = (row: any) => {
+    const id = String(row.registration ?? row.name ?? '')
+    setEditingId(id)
+    setEditStatusValue(row.status !== undefined && row.status !== null ? String(row.status) : '')
+    const dateDisplay = row.date_status ? formatDateShort(row.date_status) : ''
+    setEditDateValue(dateDisplay !== '-' ? dateDisplay : '')
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setEditStatusValue('')
+    setEditDateValue('')
+  }
+
+  const handleSaveEdit = async (row: any) => {
+    const statusVal = editStatusValue.trim()
+    const statusNum = statusVal === '' ? null : Number(statusVal)
+    const isoDate = editDateValue.trim().length === 10 ? toIsoFromBr(editDateValue.trim()) : null
+    const reg = row.registration ?? null
+    let updatedRow = row
+
+    // Persist to backend when credenciais estiverem presentes e houver registro valido
+    if (reg !== null && supabaseUrl && supabaseKey) {
+      try {
+        const url = new URL(`${supabaseUrl}/rest/v1/employee`)
+        url.searchParams.set('registration', `eq.${reg}`)
+        const payload: Record<string, any> = {
+          status: statusNum,
+          date_status: isoDate,
+          user_update: userName || null,
+          date_update: new Date().toISOString(),
+        }
+        const res = await fetch(url.toString(), {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (Array.isArray(data) && data.length > 0) {
+            updatedRow = { ...row, ...data[0] }
+          }
+        } else {
+          console.error('Falha ao salvar edicao:', await res.text())
+        }
+      } catch (err) {
+        console.error('Erro ao salvar edicao', err)
+      }
+    }
+
+    setActiveEmployeesList((prev) =>
+      prev.map((item) => {
+        const matchId = String(item.registration ?? item.name ?? '')
+        if (matchId !== String(row.registration ?? row.name ?? '')) return item
+        return {
+          ...item,
+          status: updatedRow.status ?? statusNum,
+          date_status: updatedRow.date_status ?? isoDate,
+        }
+      })
+    )
+    handleCancelEdit()
   }
 
   const handleClearFilters = () => {
@@ -191,19 +375,14 @@ const Payroll: React.FC<PayrollProps> = ({
     const fetchActiveBySector = async () => {
       try {
         const monthIndex = Number(filterMonth) - 1
-        const nextMonthIso = new Date(Date.UTC(Number(filterYear), monthIndex + 1, 1)).toISOString().slice(0, 10)
+        const nextMonthIso = new Date(Date.UTC(Number(filterYear), monthIndex + 1, 1)).toISOString().slice(0, 10) // first day of next month (usa para <= fim do mes)
         const endDate = new Date(Date.UTC(Number(filterYear), monthIndex + 1, 0))
-        const endDateFmt = `${String(endDate.getUTCDate()).padStart(2, '0')}/${String(endDate.getUTCMonth() + 1).padStart(2, '0')}/${endDate.getUTCFullYear()}`
-        console.log('[Payroll] Filtro colaboradores ativos (snapshot ate fim do mes)', {
-          filterYear,
-          filterMonth,
-          endIso: nextMonthIso,
-          endDate: endDateFmt,
-        })
+        const endOfMonthIso = endDate.toISOString().slice(0, 10)
         const baseUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
-        baseUrl.searchParams.set('select', 'sector')
-        baseUrl.searchParams.set('status', 'neq.7')
+        baseUrl.searchParams.set('select', 'registration,name,sector,status,date_hiring,date_status,company')
         baseUrl.searchParams.append('date_hiring', `lt.${nextMonthIso}`)
+        // Mantem ativo ate o fim do mes: status != 7 ou (status = 7 e data de desligamento depois do fim do mes)
+        baseUrl.searchParams.append('or', `(status.neq.7,and(status.eq.7,date_status.gte.${endOfMonthIso}))`)
         if (filterCompany) {
           baseUrl.searchParams.append('company', `eq.${filterCompany}`)
         }
@@ -215,6 +394,7 @@ const Payroll: React.FC<PayrollProps> = ({
         let from = 0
         const sectorCounts = new Map<string, number>()
         let total = 0
+        const activeRows: any[] = []
 
         while (true) {
           const rangeHeader = `${from}-${from + pageSize - 1}`
@@ -233,6 +413,7 @@ const Payroll: React.FC<PayrollProps> = ({
             const sectorName = formatSector(row.sector)
             sectorCounts.set(sectorName, (sectorCounts.get(sectorName) || 0) + 1)
             total += 1
+            activeRows.push(row)
           })
           if (batch.length < pageSize) {
             break
@@ -240,6 +421,7 @@ const Payroll: React.FC<PayrollProps> = ({
           from += pageSize
         }
         setActiveEmployees(total)
+        setActiveEmployeesList(activeRows)
         setSectorEmployeeSummary(Array.from(sectorCounts.entries()).map(([label, count]) => ({ label, count })))
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
@@ -753,9 +935,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     <span className="text-2xl font-extrabold tracking-tight">{formatCurrency(stats.avgValue)}</span>
                   </div>
                 </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3">
+                  </div>  <div className="grid grid-cols-1 gap-3">
                     <div className="bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 border border-white/10 rounded-xl p-4 shadow-inner shadow-black/20">
                       <div className="flex items-center justify-between text-white mb-3">
                         <div>
@@ -803,20 +983,16 @@ const Payroll: React.FC<PayrollProps> = ({
                       )}
                     </div>
                     <div className="bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 border border-white/10 rounded-xl p-4 shadow-inner shadow-black/20">
-                      <div className="flex items-center justify-between text-white mb-3">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-white/50">Colaboradores por setor</p>
-                          <h5 className="text-sm font-semibold">Totais por setor</h5>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-white/70">
-                          <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                          <h5 className="text-sm font-semibold">{activeEmployees}</h5>
-                        </div>
-                      </div>
+              <div className="flex flex-col gap-2 text-white mb-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-white/50">Colaboradores por setor</p>
+                  <h5 className="text-sm font-semibold">Totais por setor</h5>
+                </div>
+              </div>
                       {dashboardData.length === 0 ? (
                         <div className="text-white/60 text-sm">Sem dados para exibir.</div>
                       ) : (
-                        <div className="h-72 w-full">
+                        <div className="h-96 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={dashboardData}>
                               <defs>
@@ -833,21 +1009,23 @@ const Payroll: React.FC<PayrollProps> = ({
                                 labelStyle={{ color: '#e2e8f0' }}
                                 cursor={{ fill: 'transparent' }}
                               />
-                              <Legend wrapperStyle={{ color: '#cbd5e1', fontSize: 11 }} />
                               <Bar dataKey="empty" stackId="maincolab" fill="#1f2937" radius={[12, 12, 0, 0]} legendType="none" />
                               <Bar
                                 dataKey="hours60"
                                 name="Colaboradores"
                                 stackId="maincolab"
                                 stroke="#22c55e"
-                                isAnimationActive
-                                animationDuration={800}
+                                isAnimationActive={false}
                                 activeBar={{ fill: 'url(#gradColabMain)', stroke: '#22c55e', strokeWidth: 3, opacity: 1 }}
                               >
                                 {dashboardData.map((entry) => (
                                   <Cell key={entry.name} fill={entry.color} />
                                 ))}
-                                <LabelList content={renderValueLabel((v) => String(v))} />
+                                <LabelList
+                                  content={renderValueLabel((v) => String(v))}
+                                  position="top"
+                                  offset={10}
+                                />
                               </Bar>
                             </BarChart>
                           </ResponsiveContainer>
@@ -865,7 +1043,7 @@ const Payroll: React.FC<PayrollProps> = ({
                       {dashboardData.length === 0 ? (
                         <div className="text-white/60 text-sm">Sem dados para exibir.</div>
                       ) : (
-                        <div className="h-72 w-full">
+                        <div className="h-96 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={dashboardData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
@@ -877,7 +1055,6 @@ const Payroll: React.FC<PayrollProps> = ({
                                 formatter={(v: any) => formatCurrency(Number(v))}
                                 cursor={false}
                               />
-                              <Legend wrapperStyle={{ color: '#cbd5e1', fontSize: 11 }} />
                               <Line
                                 type="monotone"
                                 dataKey="value60"
@@ -886,8 +1063,7 @@ const Payroll: React.FC<PayrollProps> = ({
                                 strokeWidth={3}
                                 dot={{ r: 3 }}
                                 activeDot={{ r: 6, stroke: '#c084fc', strokeWidth: 0 }}
-                                isAnimationActive
-                                animationDuration={800}
+                                isAnimationActive={false}
                               />
                             </LineChart>
                           </ResponsiveContainer>
@@ -917,8 +1093,283 @@ const Payroll: React.FC<PayrollProps> = ({
               <CalendarDays className="w-12 h-12 text-blue-300" />
               <p className="text-lg font-semibold">Afastamentos</p>
               <p className="text-sm text-white/60 text-center max-w-md">
-                Espaço reservado para indicadores de afastamentos vinculados à folha.
+                Espaco reservado para indicadores de afastamentos vinculados a folha.
               </p>
+            </div>
+          )}
+
+          {active === 'alertas' && (
+            <div className="flex flex-col items-center justify-center text-white/80 h-full gap-3">
+              <Bell className="w-12 h-12 text-amber-300" />
+              <p className="text-lg font-semibold">Alertas</p>
+              <p className="text-sm text-white/60 text-center max-w-md">
+                Canal para avisos operacionais e pendencias relacionadas a folha.
+              </p>
+            </div>
+          )}
+
+          {active === 'config' && (
+            <div className="space-y-3">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3 shadow-inner shadow-black/10">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2 text-emerald-200 font-semibold">
+                    <Settings className="w-4 h-4" />
+                    Configuração
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 ml-auto">
+                    <select
+                      value={filterCompany}
+                      onChange={(e) => setFilterCompany(e.target.value)}
+                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                    >
+                      <option value="" className="bg-slate-800 text-white">Empresa</option>
+                      {companies.map((c) => (
+                        <option key={c} value={c} className="bg-slate-800 text-white">{c}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={filterSector}
+                      onChange={(e) => setFilterSector(e.target.value)}
+                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400 max-w-36 truncate"
+                    >
+                      <option value="" className="bg-slate-800 text-white">Setor</option>
+                      {sectors.map((s) => (
+                        <option key={s} value={s} className="bg-slate-800 text-white">{s}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={filterYear}
+                      onChange={(e) => setFilterYear(e.target.value)}
+                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                    >
+                      {years.map((y) => (
+                        <option key={y} value={y} className="bg-slate-800 text-white">{y}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(e.target.value)}
+                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                    >
+                      {months.map((m) => (
+                        <option key={m} value={m} className="bg-slate-800 text-white">{monthNames[Number(m) - 1]}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleClearFilters}
+                      className="px-2 py-1.5 rounded-md border border-white/15 bg-white/5 text-white hover:bg-white/10 transition-colors"
+                      title="Limpar filtros"
+                      aria-label="Limpar filtros"
+                    >
+                      <RotateCw className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/70 border border-white/10 rounded-xl overflow-hidden w-full">
+                <div className="px-3 pt-3 pb-2 border-b border-white/10">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                    <div className="lg:col-span-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Fechamento Folha de PGTO</p>
+                      <h5 className="text-lg font-semibold text-white mt-1">Referencia: {refLabel}</h5>
+                      <div className="mt-2">
+                        <input
+                          value={nameFilter}
+                          onChange={(e) => setNameFilter(e.target.value)}
+                          placeholder="Localizar por Nome ou Registro"
+                          className="w-full bg-white/5 text-white text-xs border border-white/15 rounded-md px-3 py-2 outline-none focus:border-emerald-400"
+                        />
+                      </div>
+                    </div>
+                    <div className="lg:col-span-5 flex items-center justify-center text-white/80">
+                      {statusCounts.length === 0 ? (
+                        <div className="text-white/60 text-sm">Nenhum status encontrado.</div>
+                      ) : (
+                        <table className="w-full text-[11px] border-collapse">
+                          <tbody>
+                            {statusCountRows.map((row, rIdx) => (
+                              <tr key={rIdx}>
+                                {row.map((item) => (
+                                  <td
+                                    key={item.status}
+                                    className="border border-white/10 bg-white/5 px-3 py-1 text-white/80"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-semibold text-white/80">{item.status}</span>
+                                      <span className="text-white/60 px-1">-&gt;</span>
+                                      <span className="font-semibold text-emerald-200">{item.count}</span>
+                                    </div>
+                                  </td>
+                                ))}
+                                {row.length < 3 &&
+                                  Array.from({ length: 3 - row.length }).map((_, idx) => (
+                                    <td key={`empty-${idx}`} className="border border-white/10 bg-white/5 px-3 py-1 text-white/50">
+                                      &nbsp;
+                                    </td>
+                                  ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                    <div className="lg:col-span-3 flex flex-col items-center justify-center gap-2 text-center">
+                      <div className="text-xs text-white/80 font-semibold px-3 py-2 rounded-md bg-white/5 border border-white/10">
+                        Totais de Colaborador: {sortedActiveList.length}
+                      </div>
+                      <button
+                        type="button"
+                        className="px-4 py-2 text-sm font-semibold rounded-md border border-amber-300 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+                        title="Fechar Folha"
+                      >
+                        Fechar Folha
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="overflow-x-auto overflow-y-auto max-h-96 min-h-[220px] custom-scroll preview-scroll"
+                  style={{ scrollbarGutter: 'stable' }}
+                >
+                  <table className="w-full min-w-[720px] text-[10px] sm:text-[11px] text-white/80 border-collapse">
+                    <thead className="bg-blue-900 border-b border-blue-700 sticky top-0 z-10 text-white shadow-sm shadow-black/30 text-[11px]">
+                      <tr>
+                        {[
+                          { key: 'company', label: 'Empresa' },
+                          { key: 'registration', label: 'Registro' },
+                          { key: 'name', label: 'Nome' },
+                          { key: 'sector', label: 'Setor' },
+                          { key: 'date_hiring', label: 'Admissão' },
+                          { key: 'status', label: 'Status' },
+                          { key: 'date_status', label: 'Data Afastamento' },
+                          { key: 'acoes', label: 'Acoes' },
+                          ].map((col) => {
+                          const isSorted = activeSort?.key === col.key
+                          const direction = activeSort?.direction
+                          const isSortable = col.key !== 'acoes'
+                          return (
+                            <th
+                              key={col.key}
+                              className={`px-2 sm:px-3 py-2 font-semibold text-white/90 uppercase tracking-wide ${
+                                col.key === 'name' || col.key === 'sector' ? 'text-left' : 'text-center'
+                              }`}
+                            >
+                              {isSortable ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleActiveSort(col.key)}
+                                  className={`w-full flex items-center gap-1 hover:text-emerald-200 transition-colors ${
+                                    col.key === 'name' || col.key === 'sector' ? 'justify-start' : 'justify-center'
+                                  }`}
+                                >
+                                  <span>{col.label}</span>
+                                  {isSorted && (direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                                </button>
+                              ) : (
+                                <span className={`${col.key === 'name' || col.key === 'sector' ? 'flex justify-start' : 'flex justify-center'}`}>
+                                  {col.label}
+                                </span>
+                              )}
+                            </th>
+                          )
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedActiveList.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-3 py-8 text-center text-white/60">
+                            Nenhum colaborador encontrado com este filtro.
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedActiveList.map((row, idx) => {
+                              const rowBg = idx % 2 === 0 ? 'bg-white/5' : 'bg-transparent'
+                              const isEditing = editingId === String(row.registration ?? row.name ?? '')
+                              return (
+                                <tr key={`${row.registration}-${row.name}`} className={`${rowBg} border-t border-white/5 hover:bg-blue-500/10 transition-colors`}>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/80 text-center">{row.registration ?? '-'}</td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white text-left">{row.name ?? '-'}</td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-left">{formatSector(row.sector)}</td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-center">{formatDateShort(row.date_hiring)}</td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white font-semibold text-center">
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    value={editStatusValue}
+                                    onChange={(e) => setEditStatusValue(e.target.value)}
+                                    className="w-20 bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs outline-none focus:border-emerald-400"
+                                  />
+                                ) : (
+                                  row.status ?? '-'
+                                )}
+                              </td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-center">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    value={editDateValue}
+                                    onChange={(e) => setEditDateValue(maskDateInput(e.target.value))}
+                                    placeholder="dd/mm/aaaa"
+                                    className="w-24 bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs outline-none focus:border-emerald-400"
+                                  />
+                                ) : (
+                                  formatDateShort(row.date_status)
+                                )}
+                              </td>
+                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/80 text-center">
+                                <div className="flex items-center gap-1 justify-center">
+                                  {isEditing ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="p-1 rounded hover:bg-white/10 transition-colors"
+                                        title="Salvar"
+                                        onClick={() => handleSaveEdit(row)}
+                                      >
+                                        <Check className="w-4 h-4 text-emerald-300" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="p-1 rounded hover:bg-white/10 transition-colors"
+                                        title="Cancelar"
+                                        onClick={handleCancelEdit}
+                                      >
+                                        <X className="w-4 h-4 text-rose-300" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="p-1 rounded hover:bg-white/10 hover:text-emerald-200 transition-colors"
+                                        title="Editar"
+                                        onClick={() => handleStartEdit(row)}
+                                      >
+                                        <Edit className="w-5 h-5 text-blue-400 group-hover:text-emerald-200" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="p-1 rounded hover:bg-white/10 hover:text-rose-200 transition-colors"
+                                        title="Excluir"
+                                      >
+                                        <Trash2 className="w-5 h-5 text-red-400 group-hover:text-rose-200" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </div>
