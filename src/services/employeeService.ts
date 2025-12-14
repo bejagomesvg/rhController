@@ -107,8 +107,9 @@ export const insertEmployees = async (
     for (const entry of toUpdate) {
       const updateUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
       updateUrl.searchParams.set('registration', `eq.${entry.registration}`)
+      const { registration, ...rest } = entry
       const updatePayload = {
-        ...entry,
+        ...rest, // nunca tenta alterar a chave de registro (constraint unique)
         user_update: userName || null,
         date_update: new Date().toISOString(),
       }

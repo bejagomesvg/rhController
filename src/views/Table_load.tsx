@@ -302,7 +302,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const supportedSheets = ['CADASTRO', 'FOLHA PGTO', 'HORAS EXTRAS'] as const
-  const requiredFolhaHeaders = ['cadastro', 'Colaborador', 'Evento', 'Pagamento', 'Referencia', 'valor']
+  const requiredFolhaHeaders = ['cadastro', 'Colaborador', 'Evento', 'Competencia', 'Referencia', 'valor']
   const requiredOvertimeHeaders = ['Data', 'Cadastro', 'Nome', '303', '304', '505', '506', '511', '512']
   const ITEMS_PER_PAGE = 10
 
@@ -620,12 +620,35 @@ const TableLoad: React.FC<TableLoadProps> = ({
 
   // Helper function to validate 'FOLHA PGTO' sheets
   const validateFolhaSheet = React.useCallback(async (jsonData: SheetData, cols: string[], pushMessage: (msg: string) => void) => {
-    const missingFolha = requiredFolhaHeaders.filter((h) => !cols.includes(h))
+    const normalizeHeader = (h: string) =>
+      h
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .replace(/[^\p{L}\p{N}]/gu, '')
+        .toLowerCase()
+
+    const canonicalMap = new Map<string, string>([
+      ['cadastro', 'cadastro'],
+      ['colaborador', 'Colaborador'],
+      ['nome', 'Colaborador'],
+      ['evento', 'Evento'],
+      ['competencia', 'Competencia'],
+      ['referencia', 'Referencia'],
+      ['valor', 'valor'],
+    ])
+
+    const canonicalCols = new Set<string>()
+    cols.forEach((c) => {
+      const canon = canonicalMap.get(normalizeHeader(c))
+      if (canon) canonicalCols.add(canon)
+    })
+
+    const missingFolha = requiredFolhaHeaders.filter((h) => !canonicalCols.has(h))
     if (missingFolha.length > 0) {
       dispatchHeaderError(missingFolha)
       return { ok: false }
     }
-    pushMessage(`OoO Headers validados: ${cols.length} coluna(s)`)
+    pushMessage(`OoO Headers validados: ${canonicalCols.size} coluna(s)`)
 
     // 1. Validate Employee Registrations
     const regNumbers = extractRegistrationNumbers(jsonData)
@@ -642,18 +665,22 @@ const TableLoad: React.FC<TableLoadProps> = ({
     }
 
     // 2. Check for existing payroll month
-    const paymentValue = jsonData[0]?.['Pagamento']
-    const refMonth = getRefMonthYear(paymentValue) || '-'
-    const payrollCheck = await checkPayrollMonthExists(paymentValue, supabaseUrl, supabaseKey)
+    const competenceKey = cols.find((c) => {
+      const canon = normalizeHeader(c)
+      return canon === 'competencia' || canon === 'pagamento'
+    }) || 'Competencia'
+    const competenceValue = jsonData[0]?.[competenceKey]
+    const refMonth = getRefMonthYear(competenceValue) || '-'
+    const payrollCheck = await checkPayrollMonthExists(competenceValue, supabaseUrl, supabaseKey)
     if (!payrollCheck.ok) {
       const detail = payrollCheck.error ? ` Detalhe: ${payrollCheck.error}` : ''
       dispatch({ type: 'IMPORT_FAILURE', payload: { messages: [`XxX Erro ao verificar folha ref. ${refMonth}.${detail}`] } })
       return { ok: false }
     }
     if (payrollCheck.exists) {
-      pushMessage(`:) Pagamento ref. ${refMonth} ja consta em payroll.`)
+      pushMessage(`:) Competencia ref. ${refMonth} ja consta em payroll.`)
       // Use ISO garantido para o delete
-      const iso = formatDate(paymentValue) || String(paymentValue)
+      const iso = formatDate(competenceValue) || String(competenceValue)
       const dt = new Date(iso)
       const monthIso = Number.isNaN(dt.getTime())
         ? iso
@@ -664,12 +691,14 @@ const TableLoad: React.FC<TableLoadProps> = ({
     }
 
     // 3. Normalize and format data for preview
-    const folhaOrder = ['cadastro', 'Colaborador', 'Evento', 'Pagamento', 'Referencia', 'valor']
-    const ordered = folhaOrder.filter((c) => cols.includes(c))
+    const folhaOrder = ['cadastro', 'Colaborador', 'Evento', 'Competencia', 'Referencia', 'valor']
+    const ordered = folhaOrder.map((c) => (c === 'Competencia' ? competenceKey : c)).filter((c) => cols.includes(c) || c === 'Competencia')
     const remaining = cols.filter((c) => !ordered.includes(c))
     const normalized = jsonData.map((row) => {
       const cadastroNum = row['cadastro'] ? Number(String(row['cadastro']).replace(/\D/g, '')) : row['cadastro']
       const eventoNum = row['Evento'] ? Number(String(row['Evento']).replace(/\D/g, '')) : row['Evento']
+      const competenciaVal = row[competenceKey] ?? row['Competencia'] ?? row['competencia']
+      const competenciaFmt = getRefMonthYear(competenciaVal) || competenciaVal
       let rawValorNum: number | null = null
       if (typeof row['valor'] === 'number') {
         rawValorNum = row['valor']
@@ -679,7 +708,15 @@ const TableLoad: React.FC<TableLoadProps> = ({
         rawValorNum = Number.isNaN(parsed) ? null : parsed
       }
       const valorFormatado = typeof rawValorNum === 'number' ? rawValorNum.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : row['valor']
-      return { ...row, cadastro: cadastroNum, Evento: eventoNum, valor: valorFormatado, _valorRaw: rawValorNum }
+      return {
+        ...row,
+        [competenceKey]: competenciaFmt,
+        Competencia: competenciaFmt,
+        cadastro: cadastroNum,
+        Evento: eventoNum,
+        valor: valorFormatado,
+        _valorRaw: rawValorNum,
+      }
     })
 
     dispatch({ type: 'FILE_READ_SUCCESS', payload: { data: normalized, columns: [...ordered, ...remaining], messages: [], rowErrors: [] } })
@@ -942,7 +979,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
           return
         }
         finalMessages.push(`OoO Payroll: ${payrollResult.inserted} linha(s) inseridas.`)
-        const paymentValue = sheetData[0]?.['Pagamento']
+        const paymentValue = sheetData[0]?.['Competencia']
         const refMonthLog = getRefMonthYear(paymentValue)
         await insertHistory(
           {

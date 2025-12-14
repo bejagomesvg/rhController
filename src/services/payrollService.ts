@@ -32,7 +32,28 @@ const parseMoney = (val: any): number | null => {
 
 const parseDecimal = (val: any): number | null => {
   if (val === null || val === undefined || val === '') return null
-  const num = Number(String(val).replace(/[^\d,-]/g, '').replace(',', '.'))
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null
+
+  const raw = String(val).trim()
+  if (!raw) return null
+
+  const hasComma = raw.includes(',')
+  const hasDot = raw.includes('.')
+  let normalized = raw
+
+  if (hasComma && hasDot) {
+    // Assume dot as thousand and comma as decimal: 1.234,56 -> 1234.56
+    normalized = raw.replace(/\./g, '').replace(',', '.')
+  } else if (hasComma && !hasDot) {
+    // Only comma, treat as decimal separator
+    normalized = raw.replace(',', '.')
+  } else {
+    // Only dot or none; if multiple dots, remove thousand separators
+    const dotCount = (raw.match(/\./g) || []).length
+    normalized = dotCount > 1 ? raw.replace(/\./g, '') : raw
+  }
+
+  const num = Number(normalized)
   return Number.isNaN(num) ? null : num
 }
 
@@ -73,10 +94,10 @@ export const insertPayroll = async (
   const payload: PayrollPayload[] = data.map((row) => ({
     registration: parseNumber(row['cadastro']),
     name: row['Colaborador'] ? String(row['Colaborador']).trim() : null,
-    events_payroll: parseNumber(row['Evento']),
-    references_payroll: parseDecimal(row['Referencia']),
-    volue_payroll: parseMoney(row['_valorRaw'] ?? row['valor'] ?? row['Valor'] ?? row['VALOR']),
-    date_payroll: parseDateIso(row['Pagamento']),
+    events: parseNumber(row['Evento']),
+    references_: parseDecimal(row['Referencia']),
+    volue: parseMoney(row['_valorRaw'] ?? row['valor'] ?? row['Valor'] ?? row['VALOR']),
+    competence: parseDateIso(row['Competencia']),
     type_registration: 'Importado',
     user_registration: userName || null,
     date_registration: new Date().toISOString(),
@@ -131,9 +152,9 @@ export const checkPayrollMonthExists = async (
 
   try {
     const url = new URL(`${supabaseUrl}/rest/v1/payroll`)
-    url.searchParams.append('select', 'date_payroll')
-    url.searchParams.append('date_payroll', `gte.${monthStart}`)
-    url.searchParams.append('date_payroll', `lt.${nextMonth}`)
+    url.searchParams.append('select', 'competence')
+    url.searchParams.append('competence', `gte.${monthStart}`)
+    url.searchParams.append('competence', `lt.${nextMonth}`)
     url.searchParams.append('limit', '1')
 
     const res = await fetch(url.toString(), {
@@ -142,7 +163,7 @@ export const checkPayrollMonthExists = async (
     if (!res.ok) {
       return { ok: false, exists: false, error: await res.text() }
     }
-    const rows = (await res.json()) as Array<{ date_payroll: string }>
+    const rows = (await res.json()) as Array<{ competence: string }>
     return { ok: true, exists: rows.length > 0 }
   } catch (error) {
     return { ok: false, exists: false, error: (error as Error).message }
@@ -170,8 +191,8 @@ export const deletePayrollByMonth = async (
 
   try {
     const url = new URL(`${supabaseUrl}/rest/v1/payroll`)
-    url.searchParams.append('date_payroll', `gte.${monthStart}`)
-    url.searchParams.append('date_payroll', `lt.${nextMonth}`)
+    url.searchParams.append('competence', `gte.${monthStart}`)
+    url.searchParams.append('competence', `lt.${nextMonth}`)
 
     const res = await fetch(url.toString(), {
       method: 'DELETE',

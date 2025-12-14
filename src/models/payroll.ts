@@ -1,10 +1,10 @@
 export interface PayrollPayload {
   registration: number | null
   name: string | null
-  events_payroll: number | null
-  references_payroll: number | null
-  volue_payroll: number | null
-  date_payroll: string | null
+  events: number | null
+  references_: number | null
+  volue: number | null
+  competence: string | null
   type_registration: string
   user_registration: string | null
   date_registration: string

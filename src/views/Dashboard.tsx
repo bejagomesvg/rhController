@@ -46,7 +46,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       key: 'payroll' as const,
       title: 'Folha de Pagamento',
       icon: <FileText className="w-5 h-5 text-white" />,
+      description: 'Fechamento e indicadores da folha',
       color: 'bg-gradient-to-br from-purple-500 to-indigo-600',
+      onClick: () => onOpenSecurity?.({ title: 'Folha de Pagamento', description: 'Fechamento e indicadores da folha', accent: 'payroll' }),
     },
     {
       key: 'training' as const,
@@ -255,7 +257,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 }
 
 export default Dashboard
-
 
 
 
