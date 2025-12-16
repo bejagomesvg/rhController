@@ -16,6 +16,7 @@ import {
   RotateCw,
   CalendarX,
   Factory,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   BarChart,
@@ -33,6 +34,7 @@ import {
 import StatCardSkeleton from '../components/StatCardSkeleton'
 import { Toaster, toast } from 'react-hot-toast'
 import { loadSession } from '../services/sessionService'
+import { verifyPassword } from '../services/authService'
 
 interface PayrollProps {
   onBack: () => void
@@ -83,6 +85,23 @@ const Payroll: React.FC<PayrollProps> = ({
   const [filterSector, setFilterSector] = useState('')
   // Filtros exclusivos da aba "config" para não afetar os demais filtros
   const [configCompany, setConfigCompany] = useState('')
+  const [configYear, setConfigYear] = useState(currentDate.getFullYear().toString())
+  const [configMonth, setConfigMonth] = useState(String(currentDate.getMonth() + 1))
+  const [isConfigPeriodClosed, setIsConfigPeriodClosed] = useState(false)
+  const [closingHistory, setClosingHistory] = useState<Array<{
+    company: number
+    registration?: number
+    competence: string
+    date_registration: string
+    type_registration: string
+    user_registration: string
+  }>>([])
+  const [isLoadingClosingHistory, setIsLoadingClosingHistory] = useState(false)
+  const [closingToDelete, setClosingToDelete] = useState<{ company: number; competence: string } | null>(null)
+  const [isDeletingClosing, setIsDeletingClosing] = useState(false)
+  const [closingDeletePassword, setClosingDeletePassword] = useState('')
+  const [closingDeleteAttempts, setClosingDeleteAttempts] = useState(0)
+  const [closingDeleteError, setClosingDeleteError] = useState<'required' | 'invalid' | null>(null)
   const [years, setYears] = useState<string[]>([])
   const [months, setMonths] = useState<string[]>([])
   const [companies, setCompanies] = useState<string[]>([])
@@ -116,6 +135,14 @@ const Payroll: React.FC<PayrollProps> = ({
       window.localStorage.setItem(ACTIVE_TAB_KEY, active)
     }
   }, [active])
+
+  useEffect(() => {
+    if (closingToDelete) {
+      setClosingDeletePassword('')
+      setClosingDeleteAttempts(0)
+      setClosingDeleteError(null)
+    }
+  }, [closingToDelete])
 
   const normalize = (val: string | number | null | undefined) => String(val ?? '').trim().toLowerCase()
   const formatSector = (val: string | null | undefined) => {
@@ -170,9 +197,9 @@ const Payroll: React.FC<PayrollProps> = ({
     return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
   }
   const effectiveCompany = active === 'config' ? configCompany : filterCompany
-  const effectiveYear = filterYear
-  const effectiveMonth = filterMonth
-  const refLabel = `${filterMonth.padStart(2, '0')}/${filterYear}`
+  const effectiveYear = active === 'config' ? configYear : filterYear
+  const effectiveMonth = active === 'config' ? configMonth : filterMonth
+  const refLabel = `${effectiveMonth.padStart(2, '0')}/${effectiveYear}`
   const formatCompanyLabel = (val: string) => {
     if (val === '4') return 'Frigosul'
     if (val === '5') return 'Pantaneira'
@@ -194,6 +221,108 @@ const Payroll: React.FC<PayrollProps> = ({
     if (digits.length > 4) parts.push(digits.slice(4, 8))
     return parts.join('/')
   }
+
+  useEffect(() => {
+    if (active !== 'config') {
+      setIsConfigPeriodClosed(false)
+      return
+    }
+    if (!supabaseUrl || !supabaseKey || !configCompany || !configYear || !configMonth) {
+      setIsConfigPeriodClosed(false)
+      return
+    }
+    const controller = new AbortController()
+    const checkClosed = async () => {
+      try {
+        const comp = `${configYear}-${configMonth.padStart(2, '0')}-01`
+        const url = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
+        url.searchParams.set('select', 'id')
+        url.searchParams.append('company', `eq.${configCompany}`)
+        url.searchParams.append('competence', `eq.${comp}`)
+        const res = await fetch(url.toString(), {
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Range: '0-0',
+            Prefer: 'count=exact',
+          },
+          signal: controller.signal,
+        })
+        if (!res.ok) {
+          setIsConfigPeriodClosed(false)
+          return
+        }
+        const contentRange = res.headers.get('content-range')
+        const total = contentRange ? Number(contentRange.split('/')[1]) : null
+        setIsConfigPeriodClosed((total ?? 0) > 0)
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.error('Erro ao verificar fechamento de folha', err)
+        }
+        setIsConfigPeriodClosed(false)
+      }
+    }
+    checkClosed()
+    return () => controller.abort()
+  }, [active, supabaseUrl, supabaseKey, configCompany, configYear, configMonth])
+
+  const closingHistoryGrouped = useMemo(() => {
+    const map = new Map<string, typeof closingHistory[number]>()
+    closingHistory.forEach((item) => {
+      const compKey = item.competence ? new Date(item.competence).toISOString().slice(0, 10) : ''
+      const key = `${String(item.company ?? '')}|${compKey}`
+      if (!map.has(key)) {
+        map.set(key, item)
+      }
+    })
+    return Array.from(map.values()).sort((a, b) => {
+      const compA = a.competence ? new Date(a.competence).toISOString().slice(0, 10) : ''
+      const compB = b.competence ? new Date(b.competence).toISOString().slice(0, 10) : ''
+      const compCmp = compB.localeCompare(compA)
+      if (compCmp !== 0) return compCmp
+      return String(a.company ?? '').localeCompare(String(b.company ?? ''))
+    })
+  }, [closingHistory])
+
+  useEffect(() => {
+    if (active !== 'config') return
+    if (!supabaseUrl || !supabaseKey) return
+    const controller = new AbortController()
+    const fetchHistory = async () => {
+      try {
+        setIsLoadingClosingHistory(true)
+        const url = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
+        url.searchParams.set('select', 'company,registration,competence,date_registration,type_registration,user_registration')
+        url.searchParams.set('order', 'company.asc,competence.desc,date_registration.desc')
+        const res = await fetch(url.toString(), {
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Range: '0-499',
+            Prefer: 'count=exact',
+          },
+          signal: controller.signal,
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        setClosingHistory(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.error('Erro ao carregar historico de fechamentos', err)
+        }
+      } finally {
+        setIsLoadingClosingHistory(false)
+      }
+    }
+    fetchHistory()
+    return () => controller.abort()
+  }, [active, supabaseUrl, supabaseKey, configCompany, configYear, configMonth])
+
+  useEffect(() => {
+    if (active === 'config' && !configCompany && companies.length > 0) {
+      setConfigCompany(companies[0])
+    }
+  }, [active, companies, configCompany])
 
   const handleClosePayroll = async () => {
     if (!supabaseUrl || !supabaseKey) {
@@ -267,6 +396,9 @@ const Payroll: React.FC<PayrollProps> = ({
       }
 
       toast.success('Fechamento concluido com Sucesso')
+      if (active === 'config') {
+        setIsConfigPeriodClosed(true)
+      }
     } catch (err: any) {
       console.error(err)
       toast.error('Falha ao fechar folha.')
@@ -909,6 +1041,69 @@ const Payroll: React.FC<PayrollProps> = ({
     )
   }
 
+  const resetClosingDeleteState = () => {
+    setClosingToDelete(null)
+    setClosingDeletePassword('')
+    setClosingDeleteAttempts(0)
+    setClosingDeleteError(null)
+  }
+
+  const handleDeleteClosing = async () => {
+    if (!closingToDelete || !supabaseUrl || !supabaseKey) return
+    const pwd = closingDeletePassword.trim()
+    if (!pwd) {
+      setClosingDeleteError('required')
+      return
+    }
+    if (!sessionUser) {
+      toast.error('Sessao invalida. Faca login novamente.')
+      return
+    }
+    const isValidPassword = await verifyPassword(pwd, sessionUser.password)
+    if (!isValidPassword) {
+      setClosingDeleteError('invalid')
+      setClosingDeleteAttempts((prev) => {
+        const next = prev + 1
+        if (next >= 3) {
+          toast.error('Parece que voce nao tem acesso a exclusao.')
+          resetClosingDeleteState()
+          return 0
+        }
+        return next
+      })
+      return
+    }
+    try {
+      setIsDeletingClosing(true)
+      const compIso = new Date(closingToDelete.competence).toISOString().slice(0, 10)
+      const url = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
+      url.searchParams.append('company', `eq.${closingToDelete.company}`)
+      url.searchParams.append('competence', `eq.${compIso}`)
+      const res = await fetch(url.toString(), {
+        method: 'DELETE',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      })
+      if (!res.ok) throw new Error(`Erro ao deletar fechamento: ${res.status}`)
+      toast.success('Fechamento removido com sucesso.')
+      setClosingHistory((prev) =>
+        prev.filter(
+          (item) =>
+            !(String(item.company) === String(closingToDelete.company) &&
+              new Date(item.competence).toISOString().slice(0, 10) === compIso),
+        ),
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error('Falha ao remover fechamento.')
+    } finally {
+      setIsDeletingClosing(false)
+      resetClosingDeleteState()
+    }
+  }
+
   const activeSidebarItem = sidebarItems.find((item) => item.key === active)
   const ActiveSidebarIcon = activeSidebarItem?.icon
 
@@ -991,7 +1186,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     <select
                       value={filterCompany}
                       onChange={(e) => setFilterCompany(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300"
                     >
                       <option value="" className="bg-slate-800 text-white">Empresa</option>
                       {companies.map((c) => (
@@ -1001,7 +1196,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     <select
                       value={filterSector}
                       onChange={(e) => setFilterSector(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400 max-w-36 truncate"
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300 max-w-36 truncate"
                     >
                       <option value="" className="bg-slate-800 text-white">Setor</option>
                       {sectors.map((s) => (
@@ -1011,7 +1206,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     <select
                       value={filterYear}
                       onChange={(e) => setFilterYear(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300"
                     >
                       {years.map((y) => (
                         <option key={y} value={y} className="bg-slate-800 text-white">{y}</option>
@@ -1020,7 +1215,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     <select
                       value={filterMonth}
                       onChange={(e) => setFilterMonth(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300"
                     >
                       {months.map((m) => (
                         <option key={m} value={m} className="bg-slate-800 text-white">{monthNames[Number(m) - 1]}</option>
@@ -1309,27 +1504,26 @@ const Payroll: React.FC<PayrollProps> = ({
                     <select
                       value={configCompany}
                       onChange={(e) => setConfigCompany(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300"
                     >
-                      <option value="" className="bg-slate-800 text-white">Empresa</option>
                       {companies.map((c) => (
                         <option key={c} value={c} className="bg-slate-800 text-white">{formatCompanyLabel(c)}</option>
                       ))}
                     </select>
 
                     <select
-                      value={filterYear}
-                      onChange={(e) => setFilterYear(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                      value={configYear}
+                      onChange={(e) => setConfigYear(e.target.value)}
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300"
                     >
                       {years.map((y) => (
                         <option key={y} value={y} className="bg-slate-800 text-white">{y}</option>
                       ))}
                     </select>
                     <select
-                      value={filterMonth}
-                      onChange={(e) => setFilterMonth(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                      value={configMonth}
+                      onChange={(e) => setConfigMonth(e.target.value)}
+                      className="bg-white/5 text-white text-xs border border-emerald-500/60 rounded-md px-2 py-1.5 outline-none focus:border-emerald-300"
                     >
                       {months.map((m) => (
                         <option key={m} value={m} className="bg-slate-800 text-white">{monthNames[Number(m) - 1]}</option>
@@ -1348,7 +1542,14 @@ const Payroll: React.FC<PayrollProps> = ({
                 </div>
               </div>
 
-              <div className="bg-slate-900/70 border border-white/10 rounded-xl overflow-hidden w-full">
+              {isConfigPeriodClosed ? (
+                <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm overflow-hidden w-full min-h-[320px] flex items-center justify-center">
+                  <p className="text-white text-sm font-semibold">
+                    A empresa já tem essa folha fechada Ref. {configMonth.padStart(2, '0')}/{configYear}
+                  </p>
+                </div>
+              ) : (
+              <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm overflow-hidden w-full">
                 <div className="px-3 pt-3 pb-2 border-b border-white/10">
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
                     <div className="lg:col-span-4">
@@ -1480,13 +1681,13 @@ const Payroll: React.FC<PayrollProps> = ({
                               const rowBg = idx % 2 === 0 ? 'bg-white/5' : 'bg-transparent'
                               const isEditing = editingId === String(row.registration ?? row.name ?? '')
                               return (
-                                <tr key={`${row.registration}-${row.name}`} className={`${rowBg} border-t border-white/5 hover:bg-blue-500/10 transition-colors`}>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/80 text-center">{row.registration ?? '-'}</td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white text-left">{row.name ?? '-'}</td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-left">{formatSector(row.sector)}</td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-center">{formatDateShort(row.date_hiring)}</td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white font-semibold text-center">
+                                <tr key={`${row.registration}-${row.name}`} className={`${rowBg} border-t border-white/5 hover:bg-emerald-500/10 transition-colors`}>
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">{row.registration ?? '-'}</td>
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white text-left">{row.name ?? '-'}</td>
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-left">{formatSector(row.sector)}</td>
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{formatDateShort(row.date_hiring)}</td>
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white font-semibold text-center">
                                 {isEditing ? (
                                   <input
                                     type="number"
@@ -1498,7 +1699,7 @@ const Payroll: React.FC<PayrollProps> = ({
                                   row.status ?? '-'
                                 )}
                               </td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/70 text-center">
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">
                                 {isEditing ? (
                                   <input
                                     type="text"
@@ -1511,7 +1712,7 @@ const Payroll: React.FC<PayrollProps> = ({
                                   formatDateShort(row.date_status)
                                 )}
                               </td>
-                              <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-white/80 text-center">
+                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">
                                 <div className="flex items-center gap-1 justify-center">
                                   {isEditing ? (
                                     <>
@@ -1540,14 +1741,14 @@ const Payroll: React.FC<PayrollProps> = ({
                                         title="Editar"
                                         onClick={() => handleStartEdit(row)}
                                       >
-                                        <Edit className="w-5 h-5 text-blue-400 group-hover:text-emerald-200" />
+                                        <Edit className="w-4 h-4 text-blue-400 group-hover:text-emerald-200" />
                                       </button>
                                       <button
                                         type="button"
                                         className="p-1 rounded hover:bg-white/10 hover:text-rose-200 transition-colors"
                                         title="Excluir"
                                       >
-                                        <Trash2 className="w-5 h-5 text-red-400 group-hover:text-rose-200" />
+                                        <Trash2 className="w-4 h-4 text-red-400 group-hover:text-rose-200" />
                                       </button>
                                     </>
                                   )}
@@ -1561,11 +1762,133 @@ const Payroll: React.FC<PayrollProps> = ({
                   </table>
                 </div>
               </div>
+              )}
+
+              <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm overflow-hidden w-full">
+                <div className="flex items-center justify-between mb-2 text-white">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-white/70">Fechamentos realizados</p>
+                    <h5 className="text-sm font-semibold text-white">Histórico de fechamento</h5>
+                  </div>
+                </div>
+                {isLoadingClosingHistory ? (
+                  <div className="text-white/70 text-sm">Carregando...</div>
+                ) : closingHistory.length === 0 ? (
+                  <div className="text-white/70 text-sm">Nenhum fechamento encontrado.</div>
+                ) : (
+                  <div className="overflow-x-auto max-h-64 overflow-y-auto custom-scroll">
+                    <table className="w-full min-w-[520px] text-[11px] text-white/80 border-collapse">
+                      <thead className="sticky top-0 z-10 bg-emerald-900/80 text-white backdrop-blur-md border-b border-emerald-500/50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold">Empresa</th>
+                          <th className="px-3 py-2 text-center font-semibold">Competência</th>
+                          <th className="px-3 py-2 text-center font-semibold">Data Registro</th>
+                          <th className="px-3 py-2 text-left font-semibold">Tipo</th>
+                          <th className="px-3 py-2 text-left font-semibold">Usuário</th>
+                          <th className="px-3 py-2 text-center font-semibold">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {closingHistoryGrouped.slice(0, 12).map((item) => {
+                          const compDate = item.competence ? new Date(item.competence) : null
+                          const compDisplay = compDate && !Number.isNaN(compDate.getTime())
+                            ? `${String(compDate.getUTCMonth() + 1).padStart(2, '0')}/${compDate.getUTCFullYear()}`
+                            : '-'
+                          return (
+                            <tr key={`${item.company}-${item.competence}-${item.date_registration}`} className="border-t border-white/10 hover:bg-white/5 transition-colors">
+                              <td className="px-3 py-2 text-white/80">{formatCompanyLabel(String(item.company))}</td>
+                              <td className="px-3 py-2 text-white/80 text-center">{compDisplay}</td>
+                              <td className="px-3 py-2 text-white/80 text-center">{item.date_registration ? formatDateShort(item.date_registration) : '-'}</td>
+                              <td className="px-3 py-2 text-white/80">{item.type_registration || '-'}</td>
+                              <td className="px-3 py-2 text-white/80">{item.user_registration || '-'}</td>
+                              <td className="px-3 py-2 text-white/80 text-center">
+                                <button
+                                  type="button"
+                                  className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Excluir fechamento"
+                                  onClick={() => setClosingToDelete({ company: item.company, competence: item.competence })}
+                                  disabled={isDeletingClosing}
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-400" />
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                 </div>
+               )}
+              </div>
             </div>
           )}
         </div>
       </div>
     </div>
+      {closingToDelete && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-slate-900/90 border border-white/10 rounded-2xl shadow-2xl w-full max-w-xl p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-full bg-rose-500/15 border border-rose-400/60 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-rose-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-white text-lg font-semibold">Confirmar exclusão</h3>
+                <p className="text-white/70 text-sm mt-1 leading-relaxed">
+                  Remover todos os registros de fechamento da empresa{' '}
+                  <span className="font-semibold text-white">{formatCompanyLabel(String(closingToDelete.company))}</span> para a competência{' '}
+                  <span className="font-semibold text-white">
+                    {String(new Date(closingToDelete.competence).getUTCMonth() + 1).padStart(2, '0')}/
+                    {new Date(closingToDelete.competence).getUTCFullYear()}
+                  </span>
+                  ?
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1 text-white/70 text-xs">
+                <span>Senha de confirmacao</span>
+                <span className="text-rose-400">{Math.min(closingDeleteAttempts, 3)}/3</span>
+              </div>
+              <div className="flex items-end gap-3">
+                <div className="flex-none w-[220px]">
+                  <input
+                    type="password"
+                    value={closingDeletePassword}
+                    onChange={(e) => {
+                      setClosingDeletePassword(e.target.value)
+                      if (closingDeleteError) setClosingDeleteError(null)
+                    }}
+                    className={`w-full bg-white/5 text-white text-sm border rounded-lg px-3 py-2.5 outline-none focus:border-emerald-400 ${closingDeleteError ? 'border-rose-400' : 'border-white/10'}`}
+                    placeholder="Digite sua senha"
+                    disabled={closingDeleteAttempts >= 3 || isDeletingClosing}
+                  />
+                  {closingDeleteError === 'required' && <p className="text-amber-300 text-xs mt-1">Obrigatorio</p>}
+                  {closingDeleteError === 'invalid' && <p className="text-rose-300 text-xs mt-1">Senha incorreta</p>}
+                </div>
+                <div className="flex items-center gap-3 ml-auto">
+                  <button
+                    type="button"
+                    className="px-4 py-2.5 rounded-md bg-white/10 border border-white/15 text-white hover:bg-white/15 transition-colors"
+                    onClick={resetClosingDeleteState}
+                    disabled={isDeletingClosing}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="px-4 py-2.5 rounded-md bg-rose-500 text-white font-semibold hover:bg-rose-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={handleDeleteClosing}
+                    disabled={isDeletingClosing || closingDeleteAttempts >= 3}
+                  >
+                    {isDeletingClosing ? 'Excluindo...' : 'Excluir'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
