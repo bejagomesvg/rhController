@@ -16,7 +16,6 @@ import {
   RotateCw,
   CalendarX,
   Factory,
-  TrendingUp,
 } from 'lucide-react'
 import {
   BarChart,
@@ -32,6 +31,8 @@ import {
   Cell,
 } from 'recharts'
 import StatCardSkeleton from '../components/StatCardSkeleton'
+import { Toaster, toast } from 'react-hot-toast'
+import { loadSession } from '../services/sessionService'
 
 interface PayrollProps {
   onBack: () => void
@@ -80,6 +81,8 @@ const Payroll: React.FC<PayrollProps> = ({
   const [filterMonth, setFilterMonth] = useState(String(currentDate.getMonth() + 1))
   const [filterCompany, setFilterCompany] = useState('')
   const [filterSector, setFilterSector] = useState('')
+  // Filtros exclusivos da aba "config" para não afetar os demais filtros
+  const [configCompany, setConfigCompany] = useState('')
   const [years, setYears] = useState<string[]>([])
   const [months, setMonths] = useState<string[]>([])
   const [companies, setCompanies] = useState<string[]>([])
@@ -104,6 +107,9 @@ const Payroll: React.FC<PayrollProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [nameFilter, setNameFilter] = useState('')
   const [activeSort, setActiveSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+  const [statusDescriptions, setStatusDescriptions] = useState<Record<string, string>>({})
+  const [isClosingPayroll, setIsClosingPayroll] = useState(false)
+  const sessionUser = useMemo(() => loadSession(), [])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -120,10 +126,10 @@ const Payroll: React.FC<PayrollProps> = ({
     if (x === undefined || y === undefined || !payload) return null
     return (
       <g transform={`translate(${x},${y}) rotate(-90)`}>
-        <text
-          dy={-4}
+        <text     
           textAnchor="end"
-          fill="#cbd5e1"
+          dominantBaseline='central'
+          fill="#9aa4b3ff"
           fontSize={10}
           fontWeight={600}
         >
@@ -138,6 +144,24 @@ const Payroll: React.FC<PayrollProps> = ({
     const safe = Number.isFinite(val) ? val : 0
     return safe.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
   }
+  const getStatusLabel = (code: string) => statusDescriptions[code] || `Status ${code}`
+
+  const renderChartTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null
+    const data = payload[0]?.payload || {}
+    const primaryValue = payload[0]?.value ?? data.value60 ?? data.hours60 ?? 0
+    const dataKey = payload[0]?.dataKey ?? ''
+    const isCurrency = typeof dataKey === 'string' && dataKey.toLowerCase().includes('value')
+    const valueLabel = isCurrency
+      ? formatCurrency(Number(primaryValue))
+      : Number(primaryValue ?? 0).toLocaleString('pt-BR')
+    return (
+      <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg text-center">
+        <div className="font-semibold">{label}</div>
+        <div className="mt-1 text-[11px] text-purple-300">{valueLabel}</div>
+      </div>
+    )
+  }
 
   const formatDateShort = (val?: string | null) => {
     if (!val) return '-'
@@ -145,7 +169,15 @@ const Payroll: React.FC<PayrollProps> = ({
     if (Number.isNaN(d.getTime())) return String(val)
     return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
   }
+  const effectiveCompany = active === 'config' ? configCompany : filterCompany
+  const effectiveYear = filterYear
+  const effectiveMonth = filterMonth
   const refLabel = `${filterMonth.padStart(2, '0')}/${filterYear}`
+  const formatCompanyLabel = (val: string) => {
+    if (val === '4') return 'Frigosul'
+    if (val === '5') return 'Pantaneira'
+    return val
+  }
 
   const toIsoFromBr = (val: string): string | null => {
     const match = val.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
@@ -161,6 +193,86 @@ const Payroll: React.FC<PayrollProps> = ({
     if (digits.length > 2) parts.push(digits.slice(2, 4))
     if (digits.length > 4) parts.push(digits.slice(4, 8))
     return parts.join('/')
+  }
+
+  const handleClosePayroll = async () => {
+    if (!supabaseUrl || !supabaseKey) {
+      return
+    }
+    if (sortedActiveList.length === 0) {
+      return
+    }
+    const compMonth = effectiveMonth.padStart(2, '0')
+    const competence = `${effectiveYear}-${compMonth}-01`
+    const nowIso = new Date().toISOString()
+
+    const closingPayload = sortedActiveList.map((row) => ({
+      company: row.company ? Number(row.company) : 0,
+      registration: row.registration ? Number(row.registration) : 0,
+      competence,
+      name: row.name || '',
+      status_: row.status !== undefined && row.status !== null ? Number(row.status) : 0,
+      status_date:
+        row.status !== undefined && row.status !== null && Number(row.status) === 1
+          ? null
+          : row.date_status
+            ? row.date_status
+            : competence,
+      type_registration: 'SYSTEM',
+      user_registration: sessionUser?.username || 'SYSTEM',
+      date_registration: nowIso,
+    }))
+
+    setIsClosingPayroll(true)
+    try {
+      const insertUrl = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
+      const res = await fetch(insertUrl.toString(), {
+        method: 'POST',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify(closingPayload),
+      })
+      if (!res.ok) {
+        const txt = await res.text()
+        throw new Error(`Erro ao fechar folha: ${res.status} ${txt}`)
+      }
+
+      const logUrl = new URL(`${supabaseUrl}/rest/v1/log_table_load`)
+      const logActionText = `Fechamento Folha Ref. ${effectiveMonth.padStart(2, '0')}/${effectiveYear}`
+      const logPayload = {
+        table_registration: `closing_payroll Ref. ${effectiveMonth.padStart(2, '0')}/${effectiveYear}`,
+        actions: 'Inclusao',
+        file_: logActionText,
+        type_registration: 'SYSTEM',
+        user_registration: sessionUser?.username || 'SYSTEM',
+        date_registration: nowIso,
+      }
+      const logRes = await fetch(logUrl.toString(), {
+        method: 'POST',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify(logPayload),
+      })
+      if (!logRes.ok) {
+        const txt = await logRes.text()
+        throw new Error(`Erro ao registrar log: ${logRes.status} ${txt}`)
+      }
+
+      toast.success('Fechamento concluido com Sucesso')
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Falha ao fechar folha.')
+    } finally {
+      setIsClosingPayroll(false)
+    }
   }
 
   const filteredActiveList = useMemo(() => {
@@ -188,6 +300,22 @@ const Payroll: React.FC<PayrollProps> = ({
         return a.status.localeCompare(b.status)
       })
   }, [activeEmployeesList])
+  const statusRows = useMemo(() => {
+    const rows = statusCounts.map((item) => ({
+      key: `status-${item.status}`,
+      code: String(item.status),
+      desc: getStatusLabel(item.status),
+      count: item.count,
+    }))
+    rows.push({ key: 'adm', code: 'Admissao', desc: '', count: admissionsCount })
+    rows.push({ key: 'dem', code: 'Demissao', desc: '', count: dismissalsCount })
+    return rows
+  }, [statusCounts, admissionsCount, dismissalsCount, getStatusLabel])
+  const statusColumns = useMemo(() => {
+    const firstCol = statusRows.slice(0, 4)
+    const secondCol = statusRows.slice(4)
+    return [firstCol, secondCol]
+  }, [statusRows])
 
   const sortedActiveList = useMemo(() => {
     if (!activeSort) return filteredActiveList
@@ -218,15 +346,6 @@ const Payroll: React.FC<PayrollProps> = ({
       return { key, direction: 'asc' }
     })
   }
-
-  const statusCountRows = useMemo(() => {
-    const rows: Array<Array<{ status: string; count: number }>> = []
-    const chunkSize = 3
-    for (let i = 0; i < statusCounts.length; i += chunkSize) {
-      rows.push(statusCounts.slice(i, i + chunkSize))
-    }
-    return rows
-  }, [statusCounts])
 
   const handleStartEdit = (row: any) => {
     const id = String(row.registration ?? row.name ?? '')
@@ -383,8 +502,8 @@ const Payroll: React.FC<PayrollProps> = ({
         baseUrl.searchParams.append('date_hiring', `lt.${nextMonthIso}`)
         // Mantem ativo ate o fim do mes: status != 7 ou (status = 7 e data de desligamento depois do fim do mes)
         baseUrl.searchParams.append('or', `(status.neq.7,and(status.eq.7,date_status.gte.${endOfMonthIso}))`)
-        if (filterCompany) {
-          baseUrl.searchParams.append('company', `eq.${filterCompany}`)
+        if (effectiveCompany) {
+          baseUrl.searchParams.append('company', `eq.${effectiveCompany}`)
         }
         if (filterSector) {
           baseUrl.searchParams.append('sector', `eq.${filterSector}`)
@@ -431,7 +550,7 @@ const Payroll: React.FC<PayrollProps> = ({
     }
     fetchActiveBySector()
     return () => controller.abort()
-  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, filterCompany, filterSector])
+  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, effectiveCompany, filterSector])
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseKey || !filterYear || !filterMonth) return
@@ -446,7 +565,7 @@ const Payroll: React.FC<PayrollProps> = ({
         url.searchParams.set('select', 'registration')
         url.searchParams.set('date_hiring', `gte.${start}`)
         url.searchParams.append('date_hiring', `lte.${end}`)
-        if (filterCompany) url.searchParams.append('company', `eq.${filterCompany}`)
+        if (effectiveCompany) url.searchParams.append('company', `eq.${effectiveCompany}`)
         if (filterSector) url.searchParams.append('sector', `eq.${filterSector}`)
         const res = await fetch(url.toString(), {
           headers: {
@@ -469,7 +588,7 @@ const Payroll: React.FC<PayrollProps> = ({
     }
     fetchAdmissions()
     return () => controller.abort()
-  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, filterCompany, filterSector])
+  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, effectiveCompany, filterSector])
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseKey || !filterYear || !filterMonth) return
@@ -485,7 +604,7 @@ const Payroll: React.FC<PayrollProps> = ({
         url.searchParams.set('status', 'eq.7')
         url.searchParams.append('date_status', `gte.${start}`)
         url.searchParams.append('date_status', `lte.${end}`)
-        if (filterCompany) url.searchParams.append('company', `eq.${filterCompany}`)
+        if (effectiveCompany) url.searchParams.append('company', `eq.${effectiveCompany}`)
         if (filterSector) url.searchParams.append('sector', `eq.${filterSector}`)
         const res = await fetch(url.toString(), {
           headers: {
@@ -508,7 +627,41 @@ const Payroll: React.FC<PayrollProps> = ({
     }
     fetchDismissals()
     return () => controller.abort()
-  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, filterCompany, filterSector])
+  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, effectiveCompany, filterSector])
+
+  useEffect(() => {
+    if (!supabaseUrl || !supabaseKey) return
+    const controller = new AbortController()
+    const fetchStatusDescriptions = async () => {
+      try {
+        const url = new URL(`${supabaseUrl}/rest/v1/status`)
+        url.searchParams.set('select', 'status,description')
+        url.searchParams.set('order', 'status.asc')
+        const res = await fetch(url.toString(), {
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+          },
+          signal: controller.signal,
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        const map: Record<string, string> = {}
+        data.forEach((row: any) => {
+          if (row.status !== null && row.status !== undefined && row.description) {
+            map[String(row.status)] = String(row.description)
+          }
+        })
+        setStatusDescriptions(map)
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.error('Erro ao carregar status', err)
+        }
+      }
+    }
+    fetchStatusDescriptions()
+    return () => controller.abort()
+  }, [supabaseUrl, supabaseKey])
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseKey) return
@@ -692,8 +845,8 @@ const Payroll: React.FC<PayrollProps> = ({
       const total = eventsTotalValue || 1
       const palette = ['#22c55e', '#0ea5e9', '#a855f7', '#f97316', '#e11d48', '#f59e0b']
       const sorted = sectorSummary.slice().sort((a, b) => b.totalValue - a.totalValue)
-      const top = sorted.slice(0, 21)
-      const tail = sorted.slice(21)
+      const top = sorted.slice(0, 23)
+      const tail = sorted.slice(23)
       const tailTotal = tail.reduce((sum, item) => sum + item.totalValue, 0)
       const finalList = tailTotal > 0 ? [...top, { label: 'Outros', totalValue: tailTotal }] : top
       return finalList.map((item, idx) => ({
@@ -739,7 +892,6 @@ const Payroll: React.FC<PayrollProps> = ({
     }),
     [collaboratorBarData, valueBarData],
   )
-
   const renderValueLabel = (formatter: (v: number) => string) => (props: any) => {
     const { x, y, width, value } = props
     if (x === undefined || y === undefined || width === undefined) return null
@@ -747,7 +899,7 @@ const Payroll: React.FC<PayrollProps> = ({
       <text
         x={x + width / 2}
         y={y - 6}
-        fill="#e5e7eb"
+        fill="#fcfff7ff"
         fontSize={11}
         fontWeight={700}
         textAnchor="middle"
@@ -761,7 +913,16 @@ const Payroll: React.FC<PayrollProps> = ({
   const ActiveSidebarIcon = activeSidebarItem?.icon
 
   return (
-    <div className="space-y-4">
+    <>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          className: 'bg-slate-800 text-white border border-white/10 shadow-lg',
+          success: { iconTheme: { primary: '#22c55e', secondary: 'white' } },
+          error: { iconTheme: { primary: '#f43f5e', secondary: 'white' } },
+        }}
+      />
+      <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-white/60">{title || 'Folha de Pagamento'}</p>
@@ -834,7 +995,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     >
                       <option value="" className="bg-slate-800 text-white">Empresa</option>
                       {companies.map((c) => (
-                        <option key={c} value={c} className="bg-slate-800 text-white">{c}</option>
+                        <option key={c} value={c} className="bg-slate-800 text-white">{formatCompanyLabel(c)}</option>
                       ))}
                     </select>
                     <select
@@ -936,43 +1097,53 @@ const Payroll: React.FC<PayrollProps> = ({
                   </div>
                 </div>
                   </div>  <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 border border-white/10 rounded-xl p-4 shadow-inner shadow-black/20">
+                    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm">
                       <div className="flex items-center justify-between text-white mb-3">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-white/50">Distribuicao por setor</p>
-                          <h5 className="text-sm font-semibold">Eventos: 3 - Salario e 5 - Salario Noturno</h5>
+                          <p className="text-[10px] uppercase tracking-wide text-white/70">Distribuicao por setor</p>
+                          <h5 className="text-sm font-semibold text-white">Eventos: 3 - Salario e 5 - Salario Noturno</h5>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-white/70">
+                        <div className="flex items-center gap-2 text-sm text-white">
                           <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                          <h5 className="text-sm font-semibold">{formatCurrency(eventsTotalValue)}</h5>
+                          <span className="font-semibold">{formatCurrency(eventsTotalValue)}</span>
                         </div>
                       </div>
                       {chartData.length === 0 ? (
-                        <div className="text-white/60 text-sm">Sem dados por setor.</div>
+                        <div className="text-white/70 text-sm">Sem dados por setor.</div>
                       ) : (
                         <div className="relative">
-                          <div className="hidden md:block absolute inset-y-2 left-1/2 w-px bg-white/10 pointer-events-none" />
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                            {[chartData.slice(0, Math.ceil(chartData.length / 2)), chartData.slice(Math.ceil(chartData.length / 2))].map((col, colIdx) => (
-                              <div
-                                key={colIdx}
-                                className={`space-y-3 ${colIdx === 0 ? 'md:pr-6' : 'md:pl-6'}`}
-                              >
+                          <div className="hidden md:block absolute inset-y-2 w-px bg-white/10 pointer-events-none" style={{ left: '33.333%' }} />
+                          <div className="hidden md:block absolute inset-y-2 w-px bg-white/10 pointer-events-none" style={{ left: '66.666%' }} />
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4 relative">
+                            {[
+                              chartData.slice(0, Math.ceil(chartData.length / 3)),
+                              chartData.slice(Math.ceil(chartData.length / 3), Math.ceil(chartData.length / 3) * 2),
+                              chartData.slice(Math.ceil(chartData.length / 3) * 2),
+                            ].map((col, colIdx) => (
+                              <div key={colIdx} className="space-y-3 md:px-2">
                                 {col.map((item) => (
-                                  <div key={item.label} className="space-y-1">
-                                    <div className="grid grid-cols-[minmax(0,1fr)_80px_auto] items-center text-white/80 text-xs gap-2">
-                                      <span className="font-semibold truncate pr-2">{item.label}</span>
-                                      <span className="text-white/60 text-center font-semibold">{item.percent.toFixed(1)}%</span>
-                                      <span className="text-white font-semibold text-right">{formatCurrency(item.valor)}</span>
+                                  <div key={item.label} className="relative group space-y-1">
+                                    <div className="grid grid-cols-[minmax(0,1fr)_80px_auto] items-center text-white text-xs gap-2">
+                                      <span className="font-semibold truncate pr-2 transition-colors duration-150 group-hover:text-emerald-100">{item.label}</span>
+                                      <span className="text-white/70 text-center font-semibold transition-colors duration-150 group-hover:text-emerald-200">{item.percent.toFixed(1)}%</span>
+                                      <span className="text-white font-semibold text-right transition-colors duration-150 group-hover:text-emerald-100">{formatCurrency(item.valor)}</span>
                                     </div>
-                                    <div className="h-2.5 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
                                       <div
-                                        className="h-full rounded-full shadow-[0_0_12px_rgba(34,197,94,0.35)]"
+                                        className="h-full rounded-full shadow-[0_0_12px_rgba(34,197,94,0.35)] transition-all duration-150 ease-out group-hover:shadow-[0_0_20px_rgba(34,197,94,0.55)] group-hover:scale-[1.02]"
                                         style={{
                                           width: `${Math.max(item.percent, 3)}%`,
                                           background: `linear-gradient(90deg, ${item.color} 0%, ${item.color}CC 50%, #22c55eAA 100%)`,
                                         }}
                                       />
+                                    </div>
+                                    <div className="pointer-events-none absolute -top-14 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                                      <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-[11px] text-white shadow-lg text-center whitespace-nowrap">
+                                        <div className="font-semibold text-xs">{item.label}</div>
+                                        <div className="mt-1 text-purple-300">
+                                          {item.percent.toFixed(1)}%  {formatCurrency(item.valor)}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
                                 ))}
@@ -982,34 +1153,44 @@ const Payroll: React.FC<PayrollProps> = ({
                         </div>
                       )}
                     </div>
-                    <div className="bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 border border-white/10 rounded-xl p-4 shadow-inner shadow-black/20">
-              <div className="flex flex-col gap-2 text-white mb-3">
+                    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm">
+              <div className="flex items-center justify-between text-white mb-3">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-white/50">Colaboradores por setor</p>
-                  <h5 className="text-sm font-semibold">Totais por setor</h5>
+                  <p className="text-[10px] uppercase tracking-wide text-white/70">Colaboradores por setor</p>
+                  <h5 className="text-sm font-semibold text-white">Totais por setor</h5>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-white">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span className="font-semibold">{activeEmployees.toLocaleString('pt-BR')}</span>
                 </div>
               </div>
                       {dashboardData.length === 0 ? (
-                        <div className="text-white/60 text-sm">Sem dados para exibir.</div>
+                        <div className="text-white/70 text-sm">Sem dados para exibir.</div>
                       ) : (
                         <div className="h-96 w-full">
                           <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={dashboardData}>
+                            <BarChart data={dashboardData} margin={{ top: 24, right: 20, left: 0, bottom: 10 }}>
                               <defs>
                                 <linearGradient id="gradColabMain" x1="0" y1="0" x2="0" y2="1">
                                   <stop offset="0%" stopColor="#22c55e" stopOpacity={1} />
                                   <stop offset="100%" stopColor="#16a34a" stopOpacity={0.8} />
                                 </linearGradient>
                               </defs>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                              <XAxis dataKey="name" interval={0} height={110} tickMargin={8} tick={<SectorTick />} />
-                              <YAxis tick={{ fill: '#cbd5e1', fontSize: 11 }} />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                              <XAxis
+                                dataKey="name"
+                                interval={0}
+                                height={110}
+                                tickMargin={8}
+                                tick={<SectorTick />}
+                                axisLine={{ stroke: '#475569' }}
+                              />
+                              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 11 }} axisLine={{ stroke: '#475569' }} />
                               <RechartsTooltip
-                                contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
-                                labelStyle={{ color: '#e2e8f0' }}
+                                content={renderChartTooltip}
                                 cursor={{ fill: 'transparent' }}
                               />
-                              <Bar dataKey="empty" stackId="maincolab" fill="#1f2937" radius={[12, 12, 0, 0]} legendType="none" />
+                              <Bar dataKey="empty" stackId="maincolab" fill="#e5e7eb" radius={[12, 12, 0, 0]} legendType="none" />
                               <Bar
                                 dataKey="hours60"
                                 name="Colaboradores"
@@ -1032,27 +1213,35 @@ const Payroll: React.FC<PayrollProps> = ({
                         </div>
                       )}
                     </div>
-                    <div className="bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-slate-900/80 border border-white/10 rounded-xl p-4 shadow-inner shadow-black/20">
-                      <div className="flex items-center justify-between mb-2 text-white/80">
+                    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm">
+                      <div className="flex items-center justify-between mb-3 text-white">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-white/50">Evolucao</p>
+                          <p className="text-[10px] uppercase tracking-wide text-white/70">Evolucao</p>
                           <h5 className="text-sm font-semibold text-white">Linha de tendencia por setor</h5>
                         </div>
-                        <TrendingUp className="w-4 h-4 text-emerald-300" />
+                        <div className="flex items-center gap-2 text-sm text-white">
+                          <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                          <span className="font-semibold">{formatCurrency(eventsTotalValue)}</span>
+                        </div>
                       </div>
                       {dashboardData.length === 0 ? (
-                        <div className="text-white/60 text-sm">Sem dados para exibir.</div>
+                        <div className="text-white/70 text-sm">Sem dados para exibir.</div>
                       ) : (
                         <div className="h-96 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={dashboardData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                              <XAxis dataKey="name" interval={0} height={110} tickMargin={8} tick={<SectorTick />} />
-                              <YAxis tick={{ fill: '#cbd5e1', fontSize: 11 }} />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                              <XAxis
+                                dataKey="name"
+                                interval={0}
+                                height={110}
+                                tickMargin={8}
+                                tick={<SectorTick />}
+                                axisLine={{ stroke: '#475569' }}
+                              />
+                              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 11 }} axisLine={{ stroke: '#475569' }} />
                               <RechartsTooltip
-                                contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
-                                labelStyle={{ color: '#e2e8f0' }}
-                                formatter={(v: any) => formatCurrency(Number(v))}
+                                content={renderChartTooltip}
                                 cursor={false}
                               />
                               <Line
@@ -1118,25 +1307,16 @@ const Payroll: React.FC<PayrollProps> = ({
                   </div>
                   <div className="flex flex-wrap items-center gap-2 ml-auto">
                     <select
-                      value={filterCompany}
-                      onChange={(e) => setFilterCompany(e.target.value)}
+                      value={configCompany}
+                      onChange={(e) => setConfigCompany(e.target.value)}
                       className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
                     >
                       <option value="" className="bg-slate-800 text-white">Empresa</option>
                       {companies.map((c) => (
-                        <option key={c} value={c} className="bg-slate-800 text-white">{c}</option>
+                        <option key={c} value={c} className="bg-slate-800 text-white">{formatCompanyLabel(c)}</option>
                       ))}
                     </select>
-                    <select
-                      value={filterSector}
-                      onChange={(e) => setFilterSector(e.target.value)}
-                      className="bg-white/5 text-white text-xs border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400 max-w-36 truncate"
-                    >
-                      <option value="" className="bg-slate-800 text-white">Setor</option>
-                      {sectors.map((s) => (
-                        <option key={s} value={s} className="bg-slate-800 text-white">{s}</option>
-                      ))}
-                    </select>
+
                     <select
                       value={filterYear}
                       onChange={(e) => setFilterYear(e.target.value)}
@@ -1183,48 +1363,59 @@ const Payroll: React.FC<PayrollProps> = ({
                         />
                       </div>
                     </div>
-                    <div className="lg:col-span-5 flex items-center justify-center text-white/80">
+                    <div className="lg:col-span-5 text-white/80 flex justify-center">
                       {statusCounts.length === 0 ? (
                         <div className="text-white/60 text-sm">Nenhum status encontrado.</div>
                       ) : (
-                        <table className="w-full text-[11px] border-collapse">
-                          <tbody>
-                            {statusCountRows.map((row, rIdx) => (
-                              <tr key={rIdx}>
-                                {row.map((item) => (
-                                  <td
-                                    key={item.status}
-                                    className="border border-white/10 bg-white/5 px-3 py-1 text-white/80"
-                                  >
-                                    <div className="flex items-center justify-between">
-                                      <span className="font-semibold text-white/80">{item.status}</span>
-                                      <span className="text-white/60 px-1">-&gt;</span>
-                                      <span className="font-semibold text-emerald-200">{item.count}</span>
-                                    </div>
-                                  </td>
-                                ))}
-                                {row.length < 3 &&
-                                  Array.from({ length: 3 - row.length }).map((_, idx) => (
-                                    <td key={`empty-${idx}`} className="border border-white/10 bg-white/5 px-3 py-1 text-white/50">
-                                      &nbsp;
-                                    </td>
-                                  ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        (() => {
+                          const extraRows = 2
+                          const totalWithExtra = statusCounts.length + extraRows
+                          const hasSecondColumn = totalWithExtra > 4
+                          return (
+                            <div className={`grid grid-cols-1 ${hasSecondColumn ? 'md:grid-cols-2' : ''} gap-3 place-items-center justify-center w-full`}>
+                              {statusColumns.filter((col) => col.length > 0).map((col, idx) => (
+                                <div key={idx} className="overflow-hidden rounded-lg border border-white/10 bg-white/5 min-h-0 w-full max-w-md">
+                                  <table className="w-full text-[11px] text-white/80">
+                                    <tbody>
+                                      {col.map((item) => (
+                                        <tr
+                                          key={item.key}
+                                          className="border-t border-white/10 hover:bg-white/10 transition-colors"
+                                        >
+                                          <td className="px-3 py-0.5 text-white truncate" title={`${item.code} ${item.desc}`.trim()}>
+                                            <span className="font-semibold text-emerald-200">{item.code}</span>
+                                            {item.desc ? <span className="text-white/70">{` ${item.desc}`}</span> : null}
+                                          </td>
+                                          <td className="px-3 py-0.5 text-right font-semibold text-emerald-200 w-16">
+                                            {item.count.toLocaleString('pt-BR')}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()
                       )}
                     </div>
                     <div className="lg:col-span-3 flex flex-col items-center justify-center gap-2 text-center">
                       <div className="text-xs text-white/80 font-semibold px-3 py-2 rounded-md bg-white/5 border border-white/10">
-                        Totais de Colaborador: {sortedActiveList.length}
+                        Totais de Colaborador:{' '}
+                        <span className="text-emerald-200 text-sm font-bold">{sortedActiveList.length}</span>
                       </div>
                       <button
                         type="button"
-                        className="px-4 py-2 text-sm font-semibold rounded-md border border-amber-300 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+                        className="px-4 py-2 text-sm font-semibold rounded-md border border-amber-300 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20 transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                         title="Fechar Folha"
+                        onClick={handleClosePayroll}
+                        disabled={isClosingPayroll || isLoading}
                       >
-                        Fechar Folha
+                        {(isClosingPayroll || isLoading) && (
+                          <span className="inline-block w-4 h-4 border-2 border-amber-200 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+                        )}
+                        {isClosingPayroll ? 'Fechando...' : isLoading ? 'Carregando...' : 'Fechar Folha'}
                       </button>
                     </div>
                   </div>
@@ -1375,6 +1566,7 @@ const Payroll: React.FC<PayrollProps> = ({
         </div>
       </div>
     </div>
+    </>
   )
 }
 
