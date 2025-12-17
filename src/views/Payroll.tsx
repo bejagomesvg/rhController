@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+﻿import React, { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   Users,
@@ -30,6 +30,7 @@ import {
   ResponsiveContainer,
   LabelList,
   Cell,
+  Legend,
 } from 'recharts'
 import StatCardSkeleton from '../components/StatCardSkeleton'
 import { Toaster, toast } from 'react-hot-toast'
@@ -123,6 +124,9 @@ const Payroll: React.FC<PayrollProps> = ({
   const [employeeIndex, setEmployeeIndex] = useState<Record<string, { sector: string; company: string }>>({})
   const [sectorSummary, setSectorSummary] = useState<Array<{ label: string; totalValue: number }>>([])
   const [sectorEmployeeSummary, setSectorEmployeeSummary] = useState<Array<{ label: string; count: number }>>([])
+  const [sectorTurnoverCounts, setSectorTurnoverCounts] = useState<
+    Array<{ sector: string; admissions: number; dismissals: number }>
+  >([])
   const [isLoading, setIsLoading] = useState(false)
   const [nameFilter, setNameFilter] = useState('')
   const [activeSort, setActiveSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
@@ -170,6 +174,10 @@ const Payroll: React.FC<PayrollProps> = ({
   const formatCurrency = (val: number) => {
     const safe = Number.isFinite(val) ? val : 0
     return safe.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
+  }
+  const formatPercent = (val: number) => {
+    const safe = Number.isFinite(val) ? val : 0
+    return `${safe.toFixed(1)}%`
   }
   const getStatusLabel = (code: string) => statusDescriptions[code] || `Status ${code}`
 
@@ -447,6 +455,18 @@ const Payroll: React.FC<PayrollProps> = ({
     const firstCol = statusRows.slice(0, 4)
     const secondCol = statusRows.slice(4)
     return [firstCol, secondCol]
+  }, [statusRows])
+  const absenceStatusCounts = useMemo(() => {
+    const normalized = (value: string) => value.trim().toLowerCase()
+    const findCount = (term: string) => {
+      const matcher = term.toLowerCase()
+      const found = statusRows.find((row) => normalized(row.desc || '').includes(matcher))
+      if (found) return found.count
+      return 0
+    }
+    const faltas = findCount('falta')
+    const atestado = findCount('atestado')
+    return { faltas, atestado }
   }, [statusRows])
 
   const sortedActiveList = useMemo(() => {
@@ -762,6 +782,83 @@ const Payroll: React.FC<PayrollProps> = ({
   }, [supabaseUrl, supabaseKey, filterYear, filterMonth, effectiveCompany, filterSector])
 
   useEffect(() => {
+    if (!supabaseUrl || !supabaseKey || !filterYear || !filterMonth) return
+    const controller = new AbortController()
+    const month = filterMonth.padStart(2, '0')
+    const lastDay = new Date(Number(filterYear), Number(filterMonth), 0).getDate()
+    const start = `${filterYear}-${month}-01`
+    const end = `${filterYear}-${month}-${String(lastDay).padStart(2, '0')}`
+
+    const fetchSectorCounts = async (options: {
+      dateField: 'date_hiring' | 'date_status'
+      statusFilter?: string
+    }) => {
+      const counts = new Map<string, number>()
+      const pageSize = 1000
+      let from = 0
+      while (true) {
+        const url = new URL(`${supabaseUrl}/rest/v1/employee`)
+        url.searchParams.set('select', 'sector')
+        url.searchParams.set(options.dateField, `gte.${start}`)
+        url.searchParams.append(options.dateField, `lte.${end}`)
+        if (options.statusFilter) {
+          url.searchParams.append('status', options.statusFilter)
+        }
+        if (effectiveCompany) {
+          url.searchParams.append('company', `eq.${effectiveCompany}`)
+        }
+        if (filterSector) {
+          url.searchParams.append('sector', `eq.${filterSector}`)
+        }
+        const rangeHeader = `${from}-${from + pageSize - 1}`
+        const res = await fetch(url.toString(), {
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            Range: rangeHeader,
+            Prefer: 'count=exact',
+          },
+          signal: controller.signal,
+        })
+        if (!res.ok) break
+        const batch = await res.json()
+        batch.forEach((row: any) => {
+          const sectorName = formatSector(row.sector)
+          counts.set(sectorName, (counts.get(sectorName) || 0) + 1)
+        })
+        if (batch.length < pageSize) break
+        from += pageSize
+      }
+      return counts
+    }
+
+    const loadSectorTurnover = async () => {
+      try {
+        const [admissionMap, dismissalMap] = await Promise.all([
+          fetchSectorCounts({ dateField: 'date_hiring' }),
+          fetchSectorCounts({ dateField: 'date_status', statusFilter: 'eq.7' }),
+        ])
+        const sectors = new Set<string>([...admissionMap.keys(), ...dismissalMap.keys()])
+        const list = Array.from(sectors)
+          .map((sector) => ({
+            sector,
+            admissions: admissionMap.get(sector) || 0,
+            dismissals: dismissalMap.get(sector) || 0,
+          }))
+          .sort((a, b) => b.admissions + b.dismissals - (a.admissions + a.dismissals))
+        setSectorTurnoverCounts(list)
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.error('Erro ao contar turnover por setor', err)
+        }
+      }
+    }
+
+    loadSectorTurnover()
+    return () => controller.abort()
+  }, [supabaseUrl, supabaseKey, filterYear, filterMonth, effectiveCompany, filterSector])
+
+  useEffect(() => {
     if (!supabaseUrl || !supabaseKey) return
     const controller = new AbortController()
     const fetchStatusDescriptions = async () => {
@@ -1010,6 +1107,12 @@ const Payroll: React.FC<PayrollProps> = ({
     })),
     [sectorSummary],
   )
+  const turnoverPercent = useMemo(() => {
+    if (activeEmployees <= 0) return 0
+    const totalMovements = admissionsCount + dismissalsCount
+    const averageMovement = totalMovements / 2
+    return (averageMovement / activeEmployees) * 100
+  }, [activeEmployees, admissionsCount, dismissalsCount])
   const dashboardData = useMemo(
     () => collaboratorBarData.map((item) => {
       const value = valueBarData.find((v) => v.name === item.label)?.valor ?? 0
@@ -1024,9 +1127,29 @@ const Payroll: React.FC<PayrollProps> = ({
     }),
     [collaboratorBarData, valueBarData],
   )
+  const filteredSectorTurnoverCounts = useMemo(
+    () => sectorTurnoverCounts.filter((entry) => entry.admissions + entry.dismissals > 0),
+    [sectorTurnoverCounts],
+  )
+  const turnoverSectorChartData = useMemo(() => {
+    if (filteredSectorTurnoverCounts.length === 0) return []
+    return filteredSectorTurnoverCounts.slice(0, 12).map((entry) => ({
+      ...entry,
+      sectorLabel: formatSector(entry.sector),
+    }))
+  }, [filteredSectorTurnoverCounts])
+  const totalSectorAdmissions = useMemo(
+    () => filteredSectorTurnoverCounts.reduce((sum, entry) => sum + entry.admissions, 0),
+    [filteredSectorTurnoverCounts],
+  )
+  const totalSectorDismissals = useMemo(
+    () => filteredSectorTurnoverCounts.reduce((sum, entry) => sum + entry.dismissals, 0),
+    [filteredSectorTurnoverCounts],
+  )
   const renderValueLabel = (formatter: (v: number) => string) => (props: any) => {
     const { x, y, width, value } = props
     if (x === undefined || y === undefined || width === undefined) return null
+    if (!Number.isFinite(value) || Number(value) <= 0) return null
     return (
       <text
         x={x + width / 2}
@@ -1261,13 +1384,13 @@ const Payroll: React.FC<PayrollProps> = ({
                     <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">TURNOVER</h3>
                     <RotateCw className="w-5 h-5 text-blue-400/80" />
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold px-1">
-                    <span>ADMISSAO: <span className="text-white">{admissionsCount}</span></span>
-                    <span>DEMISSAO: <span className="text-white">{dismissalsCount}</span></span>
-                  </div>
-                  <div className="flex items-center justify-center text-center">
-                    <span className="text-4xl font-extrabold tracking-tight">{stats.totalRecords}</span>
-                  </div>
+                    <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold px-1">
+                      <span>ADMISSAO: <span className="text-white">{admissionsCount}</span></span>
+                      <span>DEMISSAO: <span className="text-white">{dismissalsCount}</span></span>
+                    </div>
+                    <div className="flex items-center justify-center text-center">
+                      <span className="text-4xl font-extrabold tracking-tight">{formatPercent(turnoverPercent)}</span>
+                    </div>
                 </div>
 
                 <div className="group relative bg-slate-800/50 border border-white/10 rounded-lg p-3 shadow-lg backdrop-blur-sm overflow-hidden h-28 flex flex-col justify-between">
@@ -1275,6 +1398,10 @@ const Payroll: React.FC<PayrollProps> = ({
                   <div className="flex justify-between items-start">
                     <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider">ABSENTEISMO</h3>
                     <CalendarX className="w-5 h-5 text-amber-400/80" />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold px-1">
+                    <span>FALTAS: <span className="text-white">{absenceStatusCounts.faltas.toLocaleString('pt-BR')}</span></span>
+                    <span>ATESTADO: <span className="text-white">{absenceStatusCounts.atestado.toLocaleString('pt-BR')}</span></span>
                   </div>
                   <div className="flex items-center justify-center text-center">
                     <span className="text-2xl font-extrabold tracking-tight">{formatCurrency(stats.totalValue)}</span>
@@ -1409,10 +1536,89 @@ const Payroll: React.FC<PayrollProps> = ({
                       )}
                     </div>
                     <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm">
-                      <div className="flex items-center justify-between mb-3 text-white">
+                      <div className="flex items-center justify-between text-white mb-3">
                         <div>
-                          <p className="text-[10px] uppercase tracking-wide text-white/70">Evolucao</p>
-                          <h5 className="text-sm font-semibold text-white">Linha de tendencia por setor</h5>
+                          <p className="text-[10px] uppercase tracking-wide text-white/70">Turnover por setor</p>
+                          <h5 className="text-sm font-semibold text-white">Admissões + demissões no mês</h5>
+                        </div>
+                      <div className="flex items-center gap-3 text-sm text-white">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                          <span className="font-semibold">{totalSectorAdmissions.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-rose-500" />
+                          <span className="font-semibold">{totalSectorDismissals.toLocaleString('pt-BR')}</span>
+                        </div>
+                      </div>
+                      </div>
+                      {turnoverSectorChartData.length === 0 ? (
+                        <div className="text-white/70 text-sm">Sem dados por setor.</div>
+                      ) : (
+                        <div className="h-72 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={turnoverSectorChartData} margin={{ top: 24, right: 10, left: 0, bottom: 20 }}>
+                            <defs>
+                              <linearGradient id="gradTurnoverAdmissions" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#22c55e" stopOpacity={1} />
+                                <stop offset="100%" stopColor="#16a34a" stopOpacity={0.85} />
+                              </linearGradient>
+                              <linearGradient id="gradTurnoverDismissals" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#fb7185" stopOpacity={1} />
+                                <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.85} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                              <XAxis
+                                dataKey="sectorLabel"
+                                interval={0}
+                                height={90}
+                                tickMargin={8}
+                                tick={<SectorTick />}
+                                axisLine={{ stroke: '#475569' }}
+                              />
+                              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 11 }} axisLine={{ stroke: '#475569' }} />
+                              <RechartsTooltip content={renderChartTooltip} cursor={{ fill: 'transparent' }} />
+                              <Legend wrapperStyle={{ color: '#cbd5f5', fontSize: 12 }} verticalAlign="top" align="right" />
+                              <Bar
+                                dataKey="admissions"
+                                name="Admissões"
+                                fill="url(#gradTurnoverAdmissions)"
+                                radius={0}
+                                barSize={32}
+                                isAnimationActive={false}
+                              >
+                                <LabelList
+                                  position="top"
+                                  offset={10}
+                                  content={renderValueLabel((v) => Number(v).toLocaleString('pt-BR'))}
+                                />
+                              </Bar>
+                              <Bar
+                                dataKey="dismissals"
+                                name="Demissões"
+                                fill="url(#gradTurnoverDismissals)"
+                                radius={0}
+                                barSize={32}
+                                isAnimationActive={false}
+                              >
+                                <LabelList
+                                  position="top"
+                                  offset={10}
+                                  content={renderValueLabel((v) => Number(v).toLocaleString('pt-BR'))}
+                                />
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg backdrop-blur-sm">
+                      <div className="flex items-center justify-between mb-3 text-white">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-white/70">Evolucao</p>
+                        <h5 className="text-sm font-semibold text-white">Linha de tendencia por setor</h5>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-white">
                           <div className="w-2 h-2 rounded-full bg-emerald-400" />
