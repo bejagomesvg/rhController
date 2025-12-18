@@ -103,6 +103,10 @@ const Payroll: React.FC<PayrollProps> = ({
   const [closingDeletePassword, setClosingDeletePassword] = useState('')
   const [closingDeleteAttempts, setClosingDeleteAttempts] = useState(0)
   const [closingDeleteError, setClosingDeleteError] = useState<'required' | 'invalid' | null>(null)
+  const [closingAuthPassword, setClosingAuthPassword] = useState('')
+  const [closingAuthError, setClosingAuthError] = useState<'required' | 'invalid' | null>(null)
+  const [isClosingAuthModalOpen, setIsClosingAuthModalOpen] = useState(false)
+  const [closingAuthAttempts, setClosingAuthAttempts] = useState(0)
   const [years, setYears] = useState<string[]>([])
   const [months, setMonths] = useState<string[]>([])
   const [companies, setCompanies] = useState<string[]>([])
@@ -133,6 +137,7 @@ const Payroll: React.FC<PayrollProps> = ({
   const [statusDescriptions, setStatusDescriptions] = useState<Record<string, string>>({})
   const [isClosingPayroll, setIsClosingPayroll] = useState(false)
   const sessionUser = useMemo(() => loadSession(), [])
+  const [payrollCompetences, setPayrollCompetences] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -233,15 +238,24 @@ const Payroll: React.FC<PayrollProps> = ({
     if (Number.isNaN(d.getTime())) return String(val)
     return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
   }
+  const formatCompetenceLabel = (val?: string | null) => {
+    if (!val) return '-'
+    const match = val.match(/^(\d{4})-(\d{2})/)
+    if (!match) return val
+    return `${match[2]}/${match[1]}`
+  }
   const effectiveCompany = active === 'config' ? configCompany : filterCompany
   const effectiveYear = active === 'config' ? configYear : filterYear
   const effectiveMonth = active === 'config' ? configMonth : filterMonth
-  const refLabel = `${effectiveMonth.padStart(2, '0')}/${effectiveYear}`
   const formatCompanyLabel = (val: string) => {
     if (val === '4') return 'Frigosul'
     if (val === '5') return 'Pantaneira'
     return val
   }
+  const folhaRefLabel = `${filterMonth.padStart(2, '0')}/${filterYear}`
+  const closingCompanyLabel = effectiveCompany ? formatCompanyLabel(effectiveCompany) : 'todas as empresas'
+  const closingCompetenceLabel = `${effectiveMonth.padStart(2, '0')}/${effectiveYear}`
+  const defaultCompetenceIso = `${effectiveYear}-${effectiveMonth.padStart(2, '0')}-01`
 
   const toIsoFromBr = (val: string): string | null => {
     const match = val.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
@@ -361,7 +375,7 @@ const Payroll: React.FC<PayrollProps> = ({
     }
   }, [active, companies, configCompany])
 
-  const handleClosePayroll = async () => {
+  const performClosePayroll = async () => {
     if (!supabaseUrl || !supabaseKey) {
       return
     }
@@ -372,25 +386,25 @@ const Payroll: React.FC<PayrollProps> = ({
     const competence = `${effectiveYear}-${compMonth}-01`
     const nowIso = new Date().toISOString()
 
-    const closingPayload = sortedActiveList.map((row) => ({
-      company: row.company ? Number(row.company) : 0,
-      registration: row.registration ? Number(row.registration) : 0,
-      competence,
-      name: row.name || '',
-      status_: row.status !== undefined && row.status !== null ? Number(row.status) : 0,
-      status_date:
-        row.status !== undefined && row.status !== null && Number(row.status) === 1
-          ? null
-          : row.date_status
-            ? row.date_status
-            : competence,
-      type_registration: 'SYSTEM',
-      user_registration: sessionUser?.username || 'SYSTEM',
-      date_registration: nowIso,
-    }))
-
     setIsClosingPayroll(true)
     try {
+      const closingPayload = sortedActiveList.map((row) => ({
+        company: row.company ? Number(row.company) : 0,
+        registration: row.registration ? Number(row.registration) : 0,
+        competence,
+        name: row.name || '',
+        status_: row.status !== undefined && row.status !== null ? Number(row.status) : 0,
+        status_date:
+          row.status !== undefined && row.status !== null && Number(row.status) === 1
+            ? null
+            : row.date_status
+            ? row.date_status
+            : competence,
+        type_registration: 'SYSTEM',
+        user_registration: sessionUser?.username || 'SYSTEM',
+        date_registration: nowIso,
+      }))
+
       const insertUrl = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
       const res = await fetch(insertUrl.toString(), {
         method: 'POST',
@@ -441,6 +455,64 @@ const Payroll: React.FC<PayrollProps> = ({
       toast.error('Falha ao fechar folha.')
     } finally {
       setIsClosingPayroll(false)
+    }
+  }
+
+  const handleRequestClosePayroll = () => {
+    if (sortedActiveList.length === 0) {
+      return
+    }
+    if (!sessionUser?.password) {
+      toast.error('Usuário sem credenciais válidas para fechamento.')
+      return
+    }
+    setClosingAuthPassword('')
+    setClosingAuthError(null)
+    setClosingAuthAttempts(0)
+    setIsClosingAuthModalOpen(true)
+  }
+
+  const handleCancelClosePayrollModal = () => {
+    setIsClosingAuthModalOpen(false)
+    setClosingAuthPassword('')
+    setClosingAuthError(null)
+    setClosingAuthAttempts(0)
+  }
+
+  const handleConfirmClosePayroll = async () => {
+    if (!sessionUser?.password) {
+      toast.error('Usuário sem credenciais válidas para fechamento.')
+      setIsClosingAuthModalOpen(false)
+      return
+    }
+    const passwordInput = closingAuthPassword.trim()
+    if (!passwordInput) {
+      setClosingAuthError('required')
+      return
+    }
+
+    try {
+      const isValidPassword = await verifyPassword(passwordInput, sessionUser.password)
+      if (!isValidPassword) {
+        const nextAttempts = closingAuthAttempts + 1
+        if (nextAttempts >= 3) {
+          toast.error('Limite de tentativas atingido.')
+          handleCancelClosePayrollModal()
+          return
+        }
+        setClosingAuthAttempts(nextAttempts)
+        setClosingAuthError('invalid')
+        return
+      }
+
+      setClosingAuthError(null)
+      setClosingAuthAttempts(0)
+      setIsClosingAuthModalOpen(false)
+      await performClosePayroll()
+      setClosingAuthPassword('')
+    } catch (err) {
+      console.error(err)
+      toast.error('Falha ao fechar folha.')
     }
   }
 
@@ -605,6 +677,15 @@ const Payroll: React.FC<PayrollProps> = ({
     setFilterSector('')
     setFilterYear(defaultYear)
     setFilterMonth(defaultMonth)
+  }
+
+  const handleClearConfigFilters = () => {
+    const now = new Date()
+    const defaultYear = years[0] ?? now.getFullYear().toString()
+    const defaultMonth = months[months.length - 1] ?? String(now.getMonth() + 1)
+    setConfigCompany('')
+    setConfigYear(defaultYear)
+    setConfigMonth(defaultMonth)
   }
 
   useEffect(() => {
@@ -1066,10 +1147,14 @@ const Payroll: React.FC<PayrollProps> = ({
         let totalValue = 0
         const sectorMap = new Map<string, number>()
 
+        const competenceMap: Record<string, string> = {}
         allRows.forEach((row) => {
           const value = Number(row.volue) || 0
           totalValue += value
           const eventNumber = Number(row.events)
+          if (row.registration !== null && row.registration !== undefined && row.competence) {
+            competenceMap[String(row.registration).trim()] = row.competence
+          }
           if (eventNumber === 3 || eventNumber === 5) {
             const regKey = row.registration !== null && row.registration !== undefined ? String(row.registration).trim() : ''
             const sectorName = (regKey && sectorByRegistration[regKey]) || 'Sem setor'
@@ -1083,6 +1168,7 @@ const Payroll: React.FC<PayrollProps> = ({
           totalValue,
           avgValue: activeEmployees > 0 ? totalValue / activeEmployees : 0,
         })
+        setPayrollCompetences(competenceMap)
         setSectorSummary(Array.from(sectorMap.entries()).map(([label, totalValue]) => ({ label, totalValue })))
       } catch (err) {
       } finally {
@@ -1767,7 +1853,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     </select>
                     <button
                       type="button"
-                      onClick={handleClearFilters}
+                      onClick={handleClearConfigFilters}
                       className="px-2 py-1.5 rounded-md border border-white/15 bg-white/5 text-white hover:bg-white/10 transition-colors"
                       title="Limpar filtros"
                       aria-label="Limpar filtros"
@@ -1790,7 +1876,7 @@ const Payroll: React.FC<PayrollProps> = ({
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
                     <div className="lg:col-span-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Fechamento Folha de PGTO</p>
-                      <h5 className="text-lg font-semibold text-white mt-1">Referencia: {refLabel}</h5>
+                      <h5 className="text-lg font-semibold text-white mt-1">Referencia: {folhaRefLabel}</h5>
                       <div className="mt-2">
                         <input
                           value={nameFilter}
@@ -1844,9 +1930,9 @@ const Payroll: React.FC<PayrollProps> = ({
                       </div>
                       <button
                         type="button"
-                        className="px-4 py-2 text-sm font-semibold rounded-md border border-amber-300 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20 transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="px-4 py-2 text-sm font-semibold rounded-md border border-amber-400 text-amber-100 bg-amber-500/10 hover:bg-amber-500/20 transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                         title="Fechar Folha"
-                        onClick={handleClosePayroll}
+                        onClick={handleRequestClosePayroll}
                         disabled={isClosingPayroll || isLoading}
                       >
                         {(isClosingPayroll || isLoading) && (
@@ -1866,6 +1952,7 @@ const Payroll: React.FC<PayrollProps> = ({
                       <tr>
                         {[
                           { key: 'company', label: 'Empresa' },
+                          { key: 'competence', label: 'Competência' },
                           { key: 'registration', label: 'Registro' },
                           { key: 'name', label: 'Nome' },
                           { key: 'sector', label: 'Setor' },
@@ -1908,7 +1995,7 @@ const Payroll: React.FC<PayrollProps> = ({
                     <tbody>
                       {sortedActiveList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="px-3 py-8 text-center text-white/60">
+                          <td colSpan={9} className="px-3 py-8 text-center text-white/60">
                             Nenhum colaborador encontrado com este filtro.
                           </td>
                         </tr>
@@ -1916,10 +2003,19 @@ const Payroll: React.FC<PayrollProps> = ({
                         sortedActiveList.map((row, idx) => {
                               const rowBg = idx % 2 === 0 ? 'bg-white/5' : 'bg-transparent'
                               const isEditing = editingId === String(row.registration ?? row.name ?? '')
+                               const registrationKey =
+                                 row.registration !== null && row.registration !== undefined ? String(row.registration).trim() : ''
+                               const competenceValue =
+                                 (registrationKey && payrollCompetences[registrationKey]) ||
+                                 row.competence ||
+                                 defaultCompetenceIso
                               return (
                                 <tr key={`${row.registration}-${row.name}`} className={`${rowBg} border-t border-white/5 hover:bg-emerald-500/10 transition-colors`}>
-                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
-                              <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">{row.registration ?? '-'}</td>
+                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
+                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">
+                                 {formatCompetenceLabel(competenceValue)}
+                               </td>
+                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">{row.registration ?? '-'}</td>
                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white text-left">{row.name ?? '-'}</td>
                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-left">{formatSector(row.sector)}</td>
                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{formatDateShort(row.date_hiring)}</td>
@@ -2118,6 +2214,66 @@ const Payroll: React.FC<PayrollProps> = ({
                     disabled={isDeletingClosing || closingDeleteAttempts >= 3}
                   >
                     {isDeletingClosing ? 'Excluindo...' : 'Excluir'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {isClosingAuthModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-slate-900/90 border border-white/10 rounded-2xl shadow-2xl w-full max-w-xl p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-full bg-amber-500/15 border border-amber-400/60 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-amber-400 text-lg font-semibold">Confirmar fechamento</h3>
+                <p className="text-white text-sm mt-1">
+                  Voce esta fechando a Folha Mensal de Pagamento da Empresa: <span className="text-amber-300">{closingCompanyLabel}</span> para a competência: <span className="text-amber-300">{closingCompetenceLabel}</span>.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1 text-white/70 text-xs">
+                <span>Senha de confirmação</span>
+                <span className="text-amber-400">{Math.min(closingAuthAttempts, 3)}/3</span>
+              </div>
+              <div className="flex items-end gap-3">
+                <div className="flex-none w-[220px]">
+                  <input
+                    type="password"
+                    value={closingAuthPassword}
+                    onChange={(e) => {
+                      setClosingAuthPassword(e.target.value)
+                      if (closingAuthError) setClosingAuthError(null)
+                    }}
+                    placeholder="Digite sua senha"
+                    className={`w-full bg-white/5 text-white text-sm border rounded-lg px-3 py-2.5 outline-none focus:border-amber-400 ${
+                      closingAuthError ? 'border-amber-400' : 'border-white/10'
+                    }`}
+                    disabled={closingAuthAttempts >= 3 || isClosingPayroll}
+                  />
+                  {closingAuthError === 'required' && <p className="text-amber-300 text-xs mt-1">Obrigatório</p>}
+                  {closingAuthError === 'invalid' && <p className="text-rose-300 text-xs mt-1">Senha incorreta</p>}
+                </div>
+                <div className="flex items-center gap-3 ml-auto">
+                  <button
+                    type="button"
+                    onClick={handleCancelClosePayrollModal}
+                    disabled={isClosingPayroll}
+                    className="px-4 py-2.5 rounded-md bg-white/10 border border-white/15 text-white hover:bg-white/15 transition-colors disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmClosePayroll}
+                    disabled={isClosingPayroll || closingAuthAttempts >= 3}
+                    className="px-4 py-2.5 rounded-md bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isClosingPayroll ? 'Confirmando...' : 'Confirmar'}
                   </button>
                 </div>
               </div>
