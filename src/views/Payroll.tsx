@@ -254,14 +254,20 @@ const Payroll: React.FC<PayrollProps> = ({
   }
   const folhaRefLabel = `${filterMonth.padStart(2, '0')}/${filterYear}`
   const closingCompanyLabel = effectiveCompany ? formatCompanyLabel(effectiveCompany) : 'todas as empresas'
-  const closingCompetenceLabel = `${effectiveMonth.padStart(2, '0')}/${effectiveYear}`
-  const defaultCompetenceIso = `${effectiveYear}-${effectiveMonth.padStart(2, '0')}-01`
+  const closingCompetenceLabel = folhaRefLabel
+  const defaultCompetenceIso = `${filterYear}-${filterMonth.padStart(2, '0')}-01`
 
   const toIsoFromBr = (val: string): string | null => {
     const match = val.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
     if (!match) return null
     const [, dd, mm, yyyy] = match
     return `${yyyy}-${mm}-${dd}`
+  }
+  const getCompetenceForRow = (row: any) => {
+    const registrationKey =
+      row.registration !== null && row.registration !== undefined ? String(row.registration).trim() : ''
+    const known = registrationKey ? payrollCompetences[registrationKey] : undefined
+    return known || row.competence || defaultCompetenceIso
   }
 
   const maskDateInput = (value: string) => {
@@ -518,13 +524,19 @@ const Payroll: React.FC<PayrollProps> = ({
 
   const filteredActiveList = useMemo(() => {
     const q = nameFilter.trim().toLowerCase()
-    if (!q) return activeEmployeesList
-    return activeEmployeesList.filter((row) => {
-      const nameVal = String(row.name || '').toLowerCase()
-      const regVal = String(row.registration || '').toLowerCase()
-      return nameVal.includes(q) || regVal.includes(q)
-    })
-  }, [activeEmployeesList, nameFilter])
+    const base = q
+      ? activeEmployeesList.filter((row) => {
+          const nameVal = String(row.name || '').toLowerCase()
+          const regVal = String(row.registration || '').toLowerCase()
+          return nameVal.includes(q) || regVal.includes(q)
+        })
+      : activeEmployeesList
+
+    return base.map((row) => ({
+      ...row,
+      competence: getCompetenceForRow(row),
+    }))
+  }, [activeEmployeesList, nameFilter, payrollCompetences, defaultCompetenceIso])
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -582,9 +594,18 @@ const Payroll: React.FC<PayrollProps> = ({
       if (!Number.isNaN(d.getTime())) return d.getTime()
       return String(v).toLowerCase()
     }
+    const getSortVal = (item: any) => {
+      if (key === 'competence') {
+        const val = typeof item.competence === 'string' ? item.competence : ''
+        const d = new Date(val)
+        if (!Number.isNaN(d.getTime())) return d.getTime()
+        return parseVal(val)
+      }
+      return parseVal(item[key])
+    }
     return [...filteredActiveList].sort((a, b) => {
-      const va = parseVal(a[key])
-      const vb = parseVal(b[key])
+      const va = getSortVal(a)
+      const vb = getSortVal(b)
       if (va < vb) return direction === 'asc' ? -1 : 1
       if (va > vb) return direction === 'asc' ? 1 : -1
       return 0
@@ -2002,19 +2023,13 @@ const Payroll: React.FC<PayrollProps> = ({
                       ) : (
                         sortedActiveList.map((row, idx) => {
                               const rowBg = idx % 2 === 0 ? 'bg-white/5' : 'bg-transparent'
-                              const isEditing = editingId === String(row.registration ?? row.name ?? '')
-                               const registrationKey =
-                                 row.registration !== null && row.registration !== undefined ? String(row.registration).trim() : ''
-                               const competenceValue =
-                                 (registrationKey && payrollCompetences[registrationKey]) ||
-                                 row.competence ||
-                                 defaultCompetenceIso
-                              return (
-                                <tr key={`${row.registration}-${row.name}`} className={`${rowBg} border-t border-white/5 hover:bg-emerald-500/10 transition-colors`}>
-                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
-                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">
-                                 {formatCompetenceLabel(competenceValue)}
-                               </td>
+                                const isEditing = editingId === String(row.registration ?? row.name ?? '')
+                                return (
+                                  <tr key={`${row.registration}-${row.name}`} className={`${rowBg} border-t border-white/5 hover:bg-emerald-500/10 transition-colors`}>
+                                <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-center">{row.company ?? '-'}</td>
+                                <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">
+                                  {formatCompetenceLabel(row.competence)}
+                                </td>
                                <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/80 text-center">{row.registration ?? '-'}</td>
                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white text-left">{row.name ?? '-'}</td>
                               <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap text-white/70 text-left">{formatSector(row.sector)}</td>
