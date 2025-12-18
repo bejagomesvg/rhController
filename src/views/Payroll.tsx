@@ -198,6 +198,35 @@ const Payroll: React.FC<PayrollProps> = ({
     )
   }
 
+  const renderTurnoverTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null
+    const base = payload[0]?.payload || {}
+    const admissionsVal = Number(base.admissions ?? 0)
+    const dismissalsVal = Number(base.dismissals ?? 0)
+    const rows = [
+      { label: 'Admissão:', value: admissionsVal, color: 'text-emerald-200' },
+      { label: 'Demissão:', value: dismissalsVal, color: 'text-rose-200' },
+    ].filter((row) => row.value > 0)
+    const hasRows = rows.length > 0
+    return (
+      <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg min-w-[160px]">
+        <div className="font-semibold text-center mb-1">{label}</div>
+        {hasRows ? (
+          <div className="space-y-1 text-[11px]">
+            {rows.map((row) => (
+              <div key={row.label} className="flex items-center justify-between">
+                <span className={`${row.color} font-semibold`}>{row.label}</span>
+                <span className="text-white font-semibold">{row.value.toLocaleString('pt-BR')}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-[11px] text-white/70 text-center font-semibold">Sem movimentos</div>
+        )}
+      </div>
+    )
+  }
+
   const formatDateShort = (val?: string | null) => {
     if (!val) return '-'
     const d = new Date(val)
@@ -1517,7 +1546,6 @@ const Payroll: React.FC<PayrollProps> = ({
                                 dataKey="hours60"
                                 name="Colaboradores"
                                 stackId="maincolab"
-                                stroke="#22c55e"
                                 isAnimationActive={false}
                                 activeBar={{ fill: 'url(#gradColabMain)', stroke: '#22c55e', strokeWidth: 3, opacity: 1 }}
                               >
@@ -1578,12 +1606,13 @@ const Payroll: React.FC<PayrollProps> = ({
                                 axisLine={{ stroke: '#475569' }}
                               />
                               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 11 }} axisLine={{ stroke: '#475569' }} />
-                              <RechartsTooltip content={renderChartTooltip} cursor={{ fill: 'transparent' }} />
+                              <RechartsTooltip content={renderTurnoverTooltip} cursor={{ fill: 'transparent' }} />
                               <Legend wrapperStyle={{ color: '#cbd5f5', fontSize: 12 }} verticalAlign="top" align="right" />
                               <Bar
                                 dataKey="admissions"
                                 name="Admissões"
                                 fill="url(#gradTurnoverAdmissions)"
+                                activeBar={{ fill: 'url(#gradTurnoverAdmissions)', stroke: '#22c55e', strokeWidth: 3, opacity: 1 }}
                                 radius={0}
                                 barSize={32}
                                 isAnimationActive={false}
@@ -1598,6 +1627,7 @@ const Payroll: React.FC<PayrollProps> = ({
                                 dataKey="dismissals"
                                 name="Demissões"
                                 fill="url(#gradTurnoverDismissals)"
+                                activeBar={{ fill: 'url(#gradTurnoverDismissals)', stroke: '#f43f5e', strokeWidth: 3, opacity: 1 }}
                                 radius={0}
                                 barSize={32}
                                 isAnimationActive={false}
