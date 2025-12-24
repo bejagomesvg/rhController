@@ -415,6 +415,12 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     return value.toLocaleString('pt-BR')
   }
 
+  const formatNumberTwoDecimals = (value: number | string | null | undefined) => {
+    const numeric = Number(value ?? 0)
+    if (!Number.isFinite(numeric)) return '0,00'
+    return numeric.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
   const formatPercent = (value: number) => {
     const safe = Number.isFinite(value) ? value : 0
     return `${safe.toFixed(1)}%`
@@ -489,6 +495,31 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       .sort((a, b) => (b.admissions + b.dismissals) - (a.admissions + a.dismissals))
   }, [companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
+  const turnoverSectorPercentChartData = useMemo(() => {
+    const sectorEmployeeCounts = new Map<string, number>()
+    closingRegistrations.forEach((registration) => {
+      const sector = abbreviateSector(employeeInfo.get(registration)?.sector ?? null)
+      sectorEmployeeCounts.set(sector, (sectorEmployeeCounts.get(sector) || 0) + 1)
+    })
+
+    return turnoverSectorChartData
+      .map((item, index) => {
+        const employees = sectorEmployeeCounts.get(item.label) ?? 0
+        const avgMovement = (item.admissions + item.dismissals) / 2
+        const percent = employees > 0 ? (avgMovement / employees) * 100 : 0
+        return {
+          label: item.label,
+          value: percent,
+          admissions: item.admissions,
+          dismissals: item.dismissals,
+          employees,
+          color: CHART_COLORS[index % CHART_COLORS.length],
+        }
+      })
+      .filter((item) => item.value > 0)
+      .sort((a, b) => b.value - a.value)
+  }, [closingRegistrations, employeeInfo, turnoverSectorChartData])
+
   const collaboratorSectorChartData = useMemo(() => {
     const sectorMap = new Map<string, number>()
     closingRegistrations.forEach((registration) => {
@@ -545,7 +576,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
     payrollRows.forEach((row) => {
       if (row.events === null || row.events === undefined) return
-      
+
       const regKey = normalizeRegistration(row.registration)
       if (!regKey || !closingRegistrations.has(regKey)) return
 
@@ -575,10 +606,17 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
         return {
           label,
           value,
+          faltas: values.faltasRef,
+          atestados: values.atestadosRef,
+          base: values.baseAbsenteismoRef,
         }
       })
       .filter((item) => item.value > 0)
       .sort((a, b) => b.value - a.value)
+      .map((item, index) => ({
+        ...item,
+        color: CHART_COLORS[index % CHART_COLORS.length],
+      }))
   }, [payrollRows, employeeInfo, closingRegistrations])
 
   const countTooltip = ({ active, payload }: TooltipContentProps<any, any>) => {
@@ -587,11 +625,11 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     if (!data?.totalValue) return null
     return (
       <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg text-center">
-        <div className="font-semibold flex items-center justify-center gap-2">
+        <div className="font-semibold flex items-center justify-center gap-2">{data?.label}</div>
+        <div className="mt-1 text-purple-300 flex items-center justify-center gap-2">
           <span style={{ backgroundColor: data.color }} className="h-2 w-2 rounded-full" />
-          <div>{data?.label}</div>
+          <span>{Number(data?.totalValue ?? 0).toLocaleString('pt-BR')}</span>
         </div>
-        <div className="mt-1 text-purple-300">{Number(data?.totalValue ?? 0).toLocaleString('pt-BR')}</div>
       </div>
     )
   }
@@ -628,10 +666,96 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     if (active && payload && payload.length) {
       const value = payload[0].value as number
       if (!value) return null
+      const color = (payload[0].payload as { color?: string } | undefined)?.color || (payload[0].color as string | undefined)
       return (
         <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg text-center">
           <div className="font-semibold">{label}</div>
-          <div className="mt-1 text-purple-300">{`${value.toFixed(2)}%`}</div>
+          <div className="mt-1 text-purple-300 flex items-center justify-center gap-2">
+            {color ? <span style={{ backgroundColor: color }} className="h-2 w-2 rounded-full" /> : null}
+            <span>{`${value.toFixed(2)}%`}</span>
+          </div>
+        </div>
+      )
+    }
+    return null
+  }
+
+  const turnoverPercentTooltip = ({ active, payload, label }: TooltipContentProps<any, any>) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload as {
+        value?: number
+        color?: string
+        admissions?: number
+        dismissals?: number
+        employees?: number
+      }
+      const value = Number(data?.value ?? 0)
+      if (!value) return null
+      return (
+        <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg">
+          <div className="font-semibold text-center mb-2">{label}</div>
+          <div className="flex items-center justify-center gap-2 text-purple-300">
+            {data?.color ? <span style={{ backgroundColor: data.color }} className="h-2 w-2 rounded-full" /> : null}
+            <span>{`${value.toFixed(1)}%`}</span>
+          </div>
+          <div className="mt-2 space-y-1 text-white/80">
+            <div className="flex justify-between gap-4">
+              <span>Admissao</span>
+              <span className="text-emerald-300 font-semibold">
+                {(data?.admissions ?? 0).toLocaleString('pt-BR')}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span>Demissao</span>
+              <span className="text-rose-300 font-semibold">
+                {(data?.dismissals ?? 0).toLocaleString('pt-BR')}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span>Colaboradores</span>
+              <span className="text-white font-semibold">
+                {(data?.employees ?? 0).toLocaleString('pt-BR')}
+              </span>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return null
+  }
+
+  const absenteeismTooltip = ({ active, payload, label }: TooltipContentProps<any, any>) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload as {
+        value?: number
+        color?: string
+        faltas?: number
+        atestados?: number
+        base?: number
+      }
+      const value = Number(data?.value ?? 0)
+      if (!value) return null
+      return (
+        <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg">
+          <div className="font-semibold text-center mb-2">{label}</div>
+          <div className="flex items-center justify-center gap-2 text-purple-300">
+            {data?.color ? <span style={{ backgroundColor: data.color }} className="h-2 w-2 rounded-full" /> : null}
+            <span>{`${value.toFixed(2)}%`}</span>
+          </div>
+          <div className="mt-2 space-y-1 text-white/80">
+            <div className="flex justify-between gap-4">
+              <span>Faltas</span>
+              <span className="text-emerald-300 font-semibold">{formatNumberTwoDecimals(data?.faltas)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span>Atestados</span>
+              <span className="text-amber-300 font-semibold">{formatNumberTwoDecimals(data?.atestados)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span>Base</span>
+              <span className="text-white font-semibold">{formatNumberTwoDecimals(data?.base)}</span>
+            </div>
+          </div>
         </div>
       )
     }
@@ -919,7 +1043,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
               <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
-              <Bar dataKey="totalValue" radius={[8, 8, 0, 0]}>
+              <Bar dataKey="totalValue" radius={[8, 8, 0, 0]} isAnimationActive={false}>
                 {collaboratorSectorChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
                 ))}
@@ -929,7 +1053,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                   formatter={formatLabelNumber}
                   fill="#FFFFFF"
                   fontSize={12}
-                 
+                  isAnimationActive={false}
                 />
               </Bar>
             </BarChart>
@@ -965,24 +1089,24 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
             />
             <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
             <RechartsTooltip content={turnoverTooltip} cursor={{ fill: 'transparent' }} />
-            <Bar dataKey="admissions" name="Admissao" fill="#22c55e" radius={[8, 8, 0, 0]}>
+            <Bar dataKey="admissions" name="Admissao" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={false}>
               <LabelList
                 dataKey="admissions"
                 position="top"
                 formatter={formatPositiveLabelNumber}
                 fill="#FFFFFF"
                 fontSize={12}
-               
+                isAnimationActive={false}
               />
             </Bar>
-            <Bar dataKey="dismissals" name="Demissao" fill="#f43f5e" radius={[8, 8, 0, 0]}>
+            <Bar dataKey="dismissals" name="Demissao" fill="#f43f5e" radius={[8, 8, 0, 0]} isAnimationActive={false}>
               <LabelList
                 dataKey="dismissals"
                 position="top"
                 formatter={formatPositiveLabelNumber}
                 fill="#FFFFFF"
                 fontSize={12}
-               
+                isAnimationActive={false}
               />
             </Bar>
           </BarChart>
@@ -1017,10 +1141,10 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                 axisLine={{ stroke: '#475569' }}
               />
-              <RechartsTooltip content={percentTooltip} cursor={{ fill: 'transparent' }} />
-              <Bar dataKey="value" name="Absenteísmo" radius={[8, 8, 0, 0]}>
-                {absenteeismSectorChartData.map((entry, index) => (
-                  <Cell key={entry.label} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+              <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'transparent' }} />
+              <Bar dataKey="value" name="Absenteísmo" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+                {absenteeismSectorChartData.map((entry) => (
+                  <Cell key={entry.label} fill={entry.color} />
                 ))}
                 <LabelList
                   dataKey="value"
@@ -1034,6 +1158,58 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                   }}
                   fill="#FFFFFF"
                   fontSize={12}
+                  isAnimationActive={false}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+
+    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Turnover por Setor</p>
+      </div>
+      <div className="mt-3 h-64 rounded-lg border border-white/10 bg-white/5 chart-container">
+        {turnoverSectorPercentChartData.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-white/50 text-sm">
+            Sem dados para exibir.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={turnoverSectorPercentChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+              <XAxis
+                dataKey="label"
+                interval={0}
+                height={80}
+                tick={<SectorTick />}
+                axisLine={{ stroke: '#475569' }}
+              />
+              <YAxis
+                tickFormatter={(tick) => `${tick.toFixed(0)}%`}
+                tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
+                axisLine={{ stroke: '#475569' }}
+              />
+              <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'transparent' }} />
+              <Bar dataKey="value" name="Turnover" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+                {turnoverSectorPercentChartData.map((entry) => (
+                  <Cell key={entry.label} fill={entry.color} />
+                ))}
+                <LabelList
+                  dataKey="value"
+                  position="top"
+                  formatter={(value: unknown) => {
+                    const numeric = Number(value)
+                    if (Number.isFinite(numeric) && numeric > 0) {
+                      return `${numeric.toFixed(1)}%`
+                    }
+                    return ''
+                  }}
+                  fill="#FFFFFF"
+                  fontSize={12}
+                  isAnimationActive={false}
                 />
               </Bar>
             </BarChart>
