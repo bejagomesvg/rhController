@@ -139,7 +139,8 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
     if (!active || !payload || payload.length === 0) return null
     const pl = payload[0]
     if (!pl || pl.value === undefined || pl.value === null) return null
-    const label = pl?.payload?.label ?? ''
+    const labelRaw = pl?.payload?.label
+    const label = labelRaw === undefined || labelRaw === null ? '' : String(labelRaw)
     const dotColor = (pl as any)?.color ?? (pl?.payload as any)?.color
     return (
       <ChartTooltip
@@ -158,9 +159,10 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
     if (!active || !payload || payload.length === 0) return null
     const data = payload[0]?.payload as { total?: number; active?: number } | undefined
     if (!data) return null
+    const safeLabel = label === undefined || label === null ? '' : String(label)
     return (
       <ChartTooltip
-        title={label}
+        title={safeLabel}
         align="start"
         items={[
           {

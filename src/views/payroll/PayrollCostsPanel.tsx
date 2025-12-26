@@ -14,6 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
+import { ACTIVE_BAR_HOVER, ChartTooltip } from '../../components/ChartTooltip'
 import { abbreviateSector } from '../../utils/abbreviateSector'
 
 type PayrollCostsPanelProps = {
@@ -52,13 +53,6 @@ const COST_EVENT_IDS = {
   HORAS_EXTRAS: [36, 40],
   DSR_EXTRAS: [65],
   ATESTADOS: [56, 57],
-  INSS_EMPRESA: [800],
-  FGTS_EMPRESA: [801],
-  PLANO_SAUDE_EMPRESA: [802],
-  VALE_TRANSPORTE_EMPRESA: [803],
-  VALE_REFEICAO_EMPRESA: [804],
-  OUTROS_ENCARGOS: [806],
-  MULTA_FGTS: [807],
 }
 
 const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supabaseUrl }) => {
@@ -110,13 +104,15 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
     const data = payload[0]?.payload as { label?: string; totalValue?: number; color: string } | undefined
     if (!data?.totalValue) return null
     return (
-      <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg text-center">
-        <div className="font-semibold flex items-center justify-center gap-2">
-          <span style={{ backgroundColor: data.color }} className="h-2 w-2 rounded-full" />
-          <div>{data?.label}</div>
-        </div>
-        <div className="mt-1 text-purple-300">{Number(data?.totalValue ?? 0).toLocaleString('pt-BR')}</div>
-      </div>
+      <ChartTooltip
+        title={data?.label}
+        items={[
+          {
+            value: Number(data?.totalValue ?? 0).toLocaleString('pt-BR'),
+            color: data.color,
+          },
+        ]}
+      />
     )
   }
 
@@ -430,7 +426,6 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
 
   const costIndicators = useMemo(() => {
     const totals = {
-      totalCost: 0,
       horasExtrasCost: 0,
       horasExtras60: 0,
       horasExtras100: 0,
@@ -438,13 +433,6 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
       atestadosCost: 0,
       atestadosNormal: 0,
       atestadosNoturno: 0,
-      inssEmpresaCost: 0,
-      fgtsEmpresaCost: 0,
-      planoSaudeCost: 0,
-      valeTransporteCost: 0,
-      valeRefeicaoCost: 0,
-      outrosEncargosCost: 0,
-      multaFgtsCost: 0,
     }
 
     costEventRows.forEach((row) => {
@@ -452,7 +440,6 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
       if (!regKey || !filteredRegistrations.has(regKey)) return
       const value = row.volue ?? 0
       const event = row.events ?? undefined
-      totals.totalCost += value
 
       if (event && COST_EVENT_IDS.HORAS_EXTRAS.includes(event)) {
         totals.horasExtrasCost += value
@@ -465,20 +452,10 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         if (event === 56) totals.atestadosNormal += value
         if (event === 57) totals.atestadosNoturno += value
       }
-      if (event && COST_EVENT_IDS.INSS_EMPRESA.includes(event)) totals.inssEmpresaCost += value
-      if (event && COST_EVENT_IDS.FGTS_EMPRESA.includes(event)) totals.fgtsEmpresaCost += value
-      if (event && COST_EVENT_IDS.PLANO_SAUDE_EMPRESA.includes(event)) totals.planoSaudeCost += value
-      if (event && COST_EVENT_IDS.VALE_TRANSPORTE_EMPRESA.includes(event)) totals.valeTransporteCost += value
-      if (event && COST_EVENT_IDS.VALE_REFEICAO_EMPRESA.includes(event)) totals.valeRefeicaoCost += value
-      if (event && COST_EVENT_IDS.OUTROS_ENCARGOS.includes(event)) totals.outrosEncargosCost += value
-      if (event && COST_EVENT_IDS.MULTA_FGTS.includes(event)) totals.multaFgtsCost += value
     })
-
-    const avgCostPerEmployee = filteredRegistrations.size > 0 ? totals.totalCost / filteredRegistrations.size : 0
 
     return {
       ...totals,
-      avgCostPerEmployee,
     }
   }, [costEventRows, filteredRegistrations])
 
@@ -888,7 +865,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
             </div>
             <div className="flex-1 flex items-center justify-center">
               <p className="text-2xl font-semibold text-red-200">
-                {isLoadingCosts ? '...' : formatCurrency(costIndicators.inssEmpresaCost + costIndicators.fgtsEmpresaCost)}
+                ...
               </p>
             </div>
           </div>
@@ -930,7 +907,13 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.2)]}
                   />
                   <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
-                  <Bar dataKey="totalValue" radius={[8, 8, 0, 0]} isAnimationActive={false} animationDuration={0}>
+                  <Bar
+                    dataKey="totalValue"
+                    radius={[8, 8, 0, 0]}
+                    isAnimationActive={false}
+                    animationDuration={0}
+                    activeBar={ACTIVE_BAR_HOVER}
+                  >
                     {extraChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
                     ))}
@@ -987,18 +970,26 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                       const data = payload[0]?.payload as { label?: string; totalValue?: number; color?: string }
                       if (!data) return null
                       return (
-                        <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-xs text-white shadow-lg text-center">
-                          <div className="font-semibold flex items-center justify-center gap-2">
-                            <span style={{ backgroundColor: data.color }} className="h-2 w-2 rounded-full" />
-                            <div>{data?.label}</div>
-                          </div>
-                          <div className="mt-1 text-purple-300">{formatNumber(Number(data?.totalValue ?? 0))}</div>
-                        </div>
+                        <ChartTooltip
+                          title={data?.label}
+                          items={[
+                            {
+                              value: formatNumber(Number(data?.totalValue ?? 0)),
+                              color: data.color,
+                            },
+                          ]}
+                        />
                       )
                     }}
                     cursor={{ fill: 'transparent' }}
                   />
-                  <Bar dataKey="totalValue" radius={[8, 8, 0, 0]} isAnimationActive={false} animationDuration={0}>
+                  <Bar
+                    dataKey="totalValue"
+                    radius={[8, 8, 0, 0]}
+                    isAnimationActive={false}
+                    animationDuration={0}
+                    activeBar={ACTIVE_BAR_HOVER}
+                  >
                     {extraReferenceChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
                     ))}
@@ -1204,14 +1195,20 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                 topValueChartData.map((item) => {
                   const totalSum = topValueChartData.reduce((sum, row) => sum + row.totalRef, 0)
                   const percent = totalSum > 0 ? (item.totalRef / totalSum) * 100 : 0
+                  const sectorLabel = abbreviateSector(item.sector ?? null)
                   return (
                     <div
                       key={item.key}
                       className="rounded-md hover:bg-white/10 transition"
-                      title={`Setor: ${item.sector ?? 'Sem setor'}`}
+                      title={`Setor: ${sectorLabel}`}
+                      aria-label={`Setor: ${sectorLabel}`}
                     >
                       <div className="flex items-center justify-between text-xs text-white/80">
-                        <span className="font-semibold">{item.label}</span>
+                        <div className="flex flex-col">
+                          <span className="font-semibold" title={`Setor: ${sectorLabel}`}>
+                            {item.label}
+                          </span>
+                        </div>
                         <div className="flex items-center gap-3">
                           <span>{percent.toFixed(1)}%</span>
                           <span className="text-emerald-300 font-semibold">{formatCurrency(item.totalValue)}</span>
@@ -1248,14 +1245,20 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                 topReferenceChartData.map((item) => {
                   const totalSum = topReferenceChartData.reduce((sum, row) => sum + row.totalRef, 0)
                   const percent = totalSum > 0 ? (item.totalRef / totalSum) * 100 : 0
+                  const sectorLabel = abbreviateSector(item.sector ?? null)
                   return (
                     <div
                       key={item.key}
                       className="rounded-md hover:bg-white/10 transition"
-                      title={`Setor: ${item.sector ?? 'Sem setor'}`}
+                      title={`Setor: ${sectorLabel}`}
+                      aria-label={`Setor: ${sectorLabel}`}
                     >
                       <div className="flex items-center justify-between text-xs text-white/80">
-                        <span className="font-semibold">{item.label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold" title={`Setor: ${sectorLabel}`}>
+                            {item.label}
+                          </span>
+                        </div>
                         <div className="flex items-center gap-3">
                           <span>{percent.toFixed(1)}%</span>
                           <span className="text-emerald-300 font-semibold">{formatNumber(item.totalRef)}</span>
@@ -1309,7 +1312,13 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     tickCount={8}
                   />
                   <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
-                  <Bar dataKey="totalValue" radius={[8, 8, 0, 0]} isAnimationActive={false} animationDuration={0}>
+                  <Bar
+                    dataKey="totalValue"
+                    radius={[8, 8, 0, 0]}
+                    isAnimationActive={false}
+                    animationDuration={0}
+                    activeBar={ACTIVE_BAR_HOVER}
+                  >
                     {dsrChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
                     ))}
@@ -1360,7 +1369,13 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     tickCount={8}
                   />
                   <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
-                  <Bar dataKey="totalValue" radius={[8, 8, 0, 0]} isAnimationActive={false} animationDuration={0}>
+                  <Bar
+                    dataKey="totalValue"
+                    radius={[8, 8, 0, 0]}
+                    isAnimationActive={false}
+                    animationDuration={0}
+                    activeBar={ACTIVE_BAR_HOVER}
+                  >
                     {atestadosChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
                     ))}
