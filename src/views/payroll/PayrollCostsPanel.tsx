@@ -16,6 +16,7 @@ import {
 import type { TooltipContentProps } from 'recharts'
 import { ACTIVE_BAR_HOVER, ChartTooltip } from '../../components/ChartTooltip'
 import { abbreviateSector } from '../../utils/abbreviateSector'
+import { createRotatedLabelRenderer } from '../../components/RotatedValueLabel'
 
 type PayrollCostsPanelProps = {
   supabaseUrl?: string
@@ -92,6 +93,11 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
     if (!value) return null
     const match = value.match(/^(\d{4}-\d{2}-\d{2})/)
     return match ? match[1] : value
+  }
+
+  const formatCurrencyNoSymbol = (value: number) => {
+    const safeValue = Number.isFinite(value) ? value : 0
+    return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeValue)
   }
 
   const normalizeRegistration = (value: number | string | null | undefined) => {
@@ -890,7 +896,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
               <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={extraChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                <BarChart data={extraChartData} margin={{ top: 48, right: 5, left: 5, bottom: 15 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                   <XAxis
                     dataKey="label"
@@ -900,7 +906,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     axisLine={{ stroke: '#475569' }}
                   />
                   <YAxis
-                    tickFormatter={(tick) => formatCurrency(Number(tick))}
+                    tickFormatter={(tick) => formatCurrencyNoSymbol(Number(tick))}
                     tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                     axisLine={{ stroke: '#475569' }}
                     tickCount={8}
@@ -909,7 +915,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                   <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                   <Bar
                     dataKey="totalValue"
-                    radius={[8, 8, 0, 0]}
+                    radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
                     animationDuration={0}
                     activeBar={ACTIVE_BAR_HOVER}
@@ -919,10 +925,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     ))}
                     <LabelList
                       dataKey="totalValue"
-                      position="top"
-                      formatter={formatCurrencyForLabelList}
-                      fill="#FFFFFF"
-                      fontSize={12}
+                      content={createRotatedLabelRenderer(formatCurrencyNoSymbol, { color: '#FFFFFF', fontSize: 12 })}
                     />
                   </Bar>
                 </BarChart>
@@ -949,7 +952,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
               <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={extraReferenceChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                <BarChart data={extraReferenceChartData} margin={{ top: 48, right: 5, left: 5, bottom: 15 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                   <XAxis
                     dataKey="label"
@@ -985,7 +988,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                   />
                   <Bar
                     dataKey="totalValue"
-                    radius={[8, 8, 0, 0]}
+                    radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
                     animationDuration={0}
                     activeBar={ACTIVE_BAR_HOVER}
@@ -995,10 +998,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     ))}
                     <LabelList
                       dataKey="totalValue"
-                      position="top"
-                      formatter={formatNumberForLabelList}
-                      fill="#FFFFFF"
-                      fontSize={12}
+                      content={createRotatedLabelRenderer(formatCurrencyNoSymbol, { color: '#FFFFFF', fontSize: 12 })}
                     />
                   </Bar>
                 </BarChart>
@@ -1041,7 +1041,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     axisLine={{ stroke: '#475569' }}
                   />
                   <YAxis
-                    tickFormatter={(tick) => formatCurrency(Number(tick))}
+                    tickFormatter={(tick) => formatCurrencyNoSymbol(Number(tick))}
                     tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                     axisLine={{ stroke: '#475569' }}
                     tickCount={8}
@@ -1296,7 +1296,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
               <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dsrChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                <BarChart data={dsrChartData} margin={{ top: 55, right: 5, left: 5, bottom: 15 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                   <XAxis
                     dataKey="label"
@@ -1306,7 +1306,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     axisLine={{ stroke: '#475569' }}
                   />
                   <YAxis
-                    tickFormatter={(tick) => formatCurrency(Number(tick))}
+                    tickFormatter={(tick) => formatCurrencyNoSymbol(Number(tick))}
                     tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                     axisLine={{ stroke: '#475569' }}
                     tickCount={8}
@@ -1314,7 +1314,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                   <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                   <Bar
                     dataKey="totalValue"
-                    radius={[8, 8, 0, 0]}
+                    radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
                     animationDuration={0}
                     activeBar={ACTIVE_BAR_HOVER}
@@ -1324,10 +1324,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     ))}
                     <LabelList
                       dataKey="totalValue"
-                      position="top"
-                      formatter={formatCurrencyForLabelList}
-                      fill="#FFFFFF"
-                      fontSize={12}
+                      content={createRotatedLabelRenderer(formatCurrencyNoSymbol, { color: '#FFFFFF', fontSize: 12 })}
                     />
                   </Bar>
                 </BarChart>
@@ -1346,14 +1343,14 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
               {formatCurrency(atestadosChartData.reduce((sum, item) => sum + item.totalValue, 0))}
             </span>
           </div>
-          <div className="mt-3 h-64 rounded-lg border border-white/10 bg-white/5 chart-container">
+          <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
             {isLoadingCosts ? (
               <div className="h-full flex items-center justify-center text-white/50 text-sm">Carregando...</div>
             ) : atestadosChartData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={atestadosChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                <BarChart data={atestadosChartData} margin={{ top: 59, right: 5, left: 5, bottom: 15 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                   <XAxis
                     dataKey="label"
@@ -1363,7 +1360,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     axisLine={{ stroke: '#475569' }}
                   />
                   <YAxis
-                    tickFormatter={(tick) => formatCurrency(Number(tick))}
+                    tickFormatter={(tick) => formatCurrencyNoSymbol(Number(tick))}
                     tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                     axisLine={{ stroke: '#475569' }}
                     tickCount={8}
@@ -1371,7 +1368,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                   <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                   <Bar
                     dataKey="totalValue"
-                    radius={[8, 8, 0, 0]}
+                    radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
                     animationDuration={0}
                     activeBar={ACTIVE_BAR_HOVER}
@@ -1381,10 +1378,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     ))}
                     <LabelList
                       dataKey="totalValue"
-                      position="top"
-                      formatter={formatCurrencyForLabelList}
-                      fill="#FFFFFF"
-                      fontSize={12}
+                      content={createRotatedLabelRenderer(formatCurrencyNoSymbol, { color: '#FFFFFF', fontSize: 12 })}
                     />
                   </Bar>
                 </BarChart>

@@ -1270,7 +1270,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={collaboratorSectorChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+            <BarChart data={collaboratorSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
               <XAxis
                 dataKey="label"
@@ -1281,7 +1281,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
               <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
-              <Bar dataKey="totalValue" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+              <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {collaboratorSectorChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
                 ))}
@@ -1326,7 +1326,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
             />
             <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
             <RechartsTooltip content={turnoverTooltip} cursor={{ fill: 'transparent' }} />
-            <Bar dataKey="admissions" name="Admissao" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+            <Bar dataKey="admissions" name="Admissao" fill="#22c55e" radius={[3, 3, 0, 0]} isAnimationActive={false}>
               <LabelList
                 dataKey="admissions"
                 position="top"
@@ -1335,7 +1335,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 fontSize={12}
               />
             </Bar>
-            <Bar dataKey="dismissals" name="Demissao" fill="#f43f5e" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+            <Bar dataKey="dismissals" name="Demissao" fill="#f43f5e" radius={[3, 3, 0, 0]} isAnimationActive={false}>
               <LabelList
                 dataKey="dismissals"
                 position="top"
@@ -1378,7 +1378,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 tickCount={8}
               />
               <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'transparent' }} />
-              <Bar dataKey="value" name="Absenteísmo" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+              <Bar dataKey="value" name="Absenteísmo" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {absenteeismSectorChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
                 ))}
@@ -1429,7 +1429,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 tickCount={8}
               />
               <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'transparent' }} />
-              <Bar dataKey="value" name="Turnover" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+              <Bar dataKey="value" name="Turnover" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {turnoverSectorPercentChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
                 ))}
@@ -1519,7 +1519,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 <XAxis dataKey="label" interval={0} tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
                 <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
                 <RechartsTooltip content={tenureTooltip} cursor={{ fill: 'transparent' }} />
-                <Bar dataKey="value" name="Colaboradores" radius={[8, 8, 0, 0]} isAnimationActive={false}>
+                <Bar dataKey="value" name="Colaboradores" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                   {tenureChartData.map((entry) => (
                     <Cell key={entry.label} fill={entry.color} />
                   ))}

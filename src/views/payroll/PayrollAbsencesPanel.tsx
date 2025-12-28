@@ -16,6 +16,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
+import { createRotatedLabelRenderer } from '../../components/RotatedValueLabel'
 
 type PayrollAbsencesPanelProps = {
   supabaseUrl?: string
@@ -1287,7 +1288,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                   dataKey="total"
                   name="Total"
                   fill="#0ea5e9"
-                  radius={[8, 8, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                   isAnimationActive={false}
                   animationDuration={0}
                   activeBar={ACTIVE_BAR_HOVER}
@@ -1330,7 +1331,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         ) : (
           <div className="relative mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={workedHoursBySector} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+              <BarChart data={workedHoursBySector} margin={{ top: 55, right: 5, left: 5, bottom: 13}}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                 <XAxis
                   dataKey="label"
@@ -1346,7 +1347,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
                   dataKey="totalValue"
-                  radius={[8, 8, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                   isAnimationActive={false}
                   animationDuration={0}
                   activeBar={ACTIVE_BAR_HOVER}
@@ -1356,10 +1357,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                   ))}
                   <LabelList
                     dataKey="totalValue"
-                    position="top"
-                    formatter={formatLabelNumber}
-                    fill="#FFFFFF"
-                    fontSize={12}
+                    content={createRotatedLabelRenderer(formatLabelNumber, { color: '#FFFFFF', fontSize: 12 })}
                   />
                 </Bar>
               </BarChart>
@@ -1399,7 +1397,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
                   dataKey="totalValue"
-                  radius={[8, 8, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                   isAnimationActive={false}
                   animationDuration={0}
                   activeBar={ACTIVE_BAR_HOVER}
@@ -1438,7 +1436,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           ) : (
             <div className="relative mt-4 h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={absenceByTypeChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                <BarChart data={absenceByTypeChartData} margin={{ top: 20, right: 5, left: 5, bottom: 3 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                 <XAxis
                   dataKey="label"
@@ -1454,7 +1452,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <RechartsTooltip content={valueTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
                   dataKey="value"
-                  radius={[8, 8, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                   isAnimationActive={false}
                   animationDuration={0}
                   activeBar={ACTIVE_BAR_HOVER}
@@ -1494,7 +1492,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           ) : (
             <div className="relative mt-4 h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={absenceByStatusChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                <BarChart data={absenceByStatusChartData} margin={{ top: 20, right: 5, left: 5, bottom: 3 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                 <XAxis
                   dataKey="label"
@@ -1510,7 +1508,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
                   dataKey="totalValue"
-                  radius={[8, 8, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                   isAnimationActive={false}
                   animationDuration={0}
                   activeBar={ACTIVE_BAR_HOVER}
