@@ -178,3 +178,49 @@ export const fetchEmployeeRegistrations = async (
     return { ok: false, registrations: new Set() }
   }
 }
+
+export const fetchEmployeeCompanies = async (
+  supabaseUrl?: string,
+  supabaseKey?: string
+): Promise<{ ok: boolean; companies: number[]; error?: string }> => {
+  if (!supabaseUrl || !supabaseKey) {
+    return { ok: false, companies: [], error: 'Missing Supabase credentials' }
+  }
+  try {
+    const url = new URL(`${supabaseUrl}/rest/v1/employee`)
+    url.searchParams.set('select', 'company')
+    url.searchParams.set('order', 'company')
+
+    const pageSize = 1000
+    let start = 0
+    const companiesSet = new Set<number>()
+
+    while (true) {
+      const rangeHeader = `${start}-${start + pageSize - 1}`
+      const res = await fetch(url.toString(), {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Range: rangeHeader,
+        },
+      })
+      if (!res.ok) {
+        return { ok: false, companies: [], error: await res.text() }
+      }
+      const rows = (await res.json()) as Array<{ company: number | null }>
+      rows.forEach((r) => {
+        if (r.company !== null && r.company !== undefined) {
+          companiesSet.add(Number(r.company))
+        }
+      })
+      const contentRange = res.headers.get('content-range')
+      const total = contentRange ? Number(contentRange.split('/')[1] || 0) : rows.length
+      if (start + pageSize >= total || rows.length < pageSize) break
+      start += pageSize
+    }
+
+    return { ok: true, companies: Array.from(companiesSet).sort((a, b) => a - b) }
+  } catch (error) {
+    return { ok: false, companies: [], error: (error as Error).message }
+  }
+}

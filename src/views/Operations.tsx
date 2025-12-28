@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Settings,
@@ -31,8 +31,18 @@ const sidebarItems = [
   { key: 'config', label: 'Configuracao', icon: Settings },
 ]
 
+const STORAGE_KEY = 'operations:lastActive'
+
 const Operations: React.FC<OperationsProps> = ({ onBack, userName, userRole, title, description, supabaseUrl, supabaseKey, }) => {
-  const [active, setActive] = useState<string>('overtime')
+  const [active, setActive] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'overtime'
+    return localStorage.getItem(STORAGE_KEY) || 'overtime'
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(STORAGE_KEY, active)
+  }, [active])
 
 
   return (
