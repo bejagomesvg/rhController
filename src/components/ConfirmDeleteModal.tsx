@@ -57,6 +57,12 @@ const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
                 type="password"
                 value={passwordValue}
                 onChange={(e) => onPasswordChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    onConfirm()
+                  }
+                }}
                 className={`w-full bg-white/5 text-white text-sm border rounded-lg px-3 py-2.5 outline-none focus:border-emerald-400 ${
                   passwordError ? 'border-rose-400' : 'border-white/10'
                 }`}

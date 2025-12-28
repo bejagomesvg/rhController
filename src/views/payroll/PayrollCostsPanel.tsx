@@ -127,16 +127,6 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
 
   const formatNumber = (value: number) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
 
-  const formatCurrencyForLabelList = (value: unknown) => {
-    const numericValue = Number(value);
-    return Number.isFinite(numericValue) ? formatCurrency(numericValue) : '';
-  };
-
-  const formatNumberForLabelList = (value: unknown) => {
-    const numericValue = Number(value)
-    return Number.isFinite(numericValue) ? formatNumber(numericValue) : ''
-  }
-
   const SectorTick = ({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) => {
     if (x === undefined || y === undefined || !payload) return null
     return (
