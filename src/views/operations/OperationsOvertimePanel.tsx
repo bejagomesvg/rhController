@@ -1569,9 +1569,19 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
           {showTable && tableContent}
         </div>
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-lg p-4 shadow-lg">
-          <div className="flex items-center gap-2 text-white/70 text-sm mb-3">
-            <Clock className="w-4 h-4 text-emerald-300" />
-            Distribuição das Horas por Setores
+          <div className="flex items-center justify-between text-white/70 text-sm mb-3">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-emerald-300" />
+              Distribuição das Horas por Setores
+            </div>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-white/5 text-emerald-100 font-semibold">
+                Total 60%: {totals.total60Label}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-white/5 text-rose-100 font-semibold">
+                Total 100%: {totals.total100Label}
+              </span>
+            </div>
           </div>
           {sectorChartData.length === 0 ? (
             <p className="text-sm text-white/60">Nenhum dado para exibir gráficos.</p>
@@ -1651,9 +1661,19 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
         </div>
 
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-lg p-4 shadow-lg">
-          <div className="flex items-center gap-2 text-white/70 text-sm mb-3">
-            <Receipt className="w-4 h-4 text-emerald-300" />
-            Distribuição dos Valores das Horas Extras por Setores
+          <div className="flex items-center justify-between text-white/70 text-sm mb-3">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-emerald-300" />
+              Distribuição dos Valores das Horas Extras por Setores
+            </div>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-white/5 text-emerald-100 font-semibold">
+                Valor 60%: {totals.totalValue60Label}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-white/5 text-rose-100 font-semibold">
+                Valor 100%: {totals.totalValue100Label}
+              </span>
+            </div>
           </div>
           {sectorChartData.length === 0 ? (
             <p className="text-sm text-white/60">Nenhum dado para exibir gráficos.</p>
@@ -1731,9 +1751,25 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
 
         {/* GRAFICO - DISTRIBUIÇÃO MENSAL */}
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-lg p-4 shadow-lg">
-          <div className="flex items-center gap-2 text-white/70 text-sm mb-3">
-            <ChartLine className="w-4 h-4 text-emerald-300" />
-            Distribuição mensal (Horas e Valores)
+          <div className="flex items-center justify-between text-white/70 text-sm mb-3">
+            <div className="flex items-center gap-2">
+              <ChartLine className="w-4 h-4 text-emerald-300" />
+              Distribuição mensal (Horas e Valores)
+            </div>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-white/5 text-emerald-100 font-semibold">
+                Total 60%: {totals.total60Label}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-white/5 text-rose-100 font-semibold">
+                Total 100%: {totals.total100Label}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-white/5 text-emerald-100 font-semibold">
+                Valor 60%: {totals.totalValue60Label}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-white/5 text-rose-100 font-semibold">
+                Valor 100%: {totals.totalValue100Label}
+              </span>
+            </div>
           </div>
           {monthlyChartData.length === 0 ? (
             <p className="text-sm text-white/60">Nenhum dado para exibir gráficos.</p>

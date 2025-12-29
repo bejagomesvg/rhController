@@ -276,22 +276,21 @@ export function App(): ReactElement {
     }
   }, [securityCard])
 
-  // Atualiza permiss�es/m�dulos periodicamente enquanto logado.
+  // Atualiza permissões/módulos apenas uma vez quando o usuário muda (sem pooling constante).
   useEffect(() => {
     if (!currentUser?.username) return
-    const interval = window.setInterval(async () => {
-      try {
-        const freshUser = await fetchUserByUsername(currentUser.username)
-        if (freshUser) {
+    let isMounted = true
+    fetchUserByUsername(currentUser.username)
+      .then((freshUser) => {
+        if (freshUser && isMounted) {
           setCurrentUser(freshUser)
           saveSession(freshUser)
         }
-      } catch (error) {
-        console.error('Erro ao atualizar permissões do usuário:', error)
-      }
-    }, 20000)
-
-    return () => window.clearInterval(interval)
+      })
+      .catch((error) => console.error('Erro ao atualizar permissões do usuário:', error))
+    return () => {
+      isMounted = false
+    }
   }, [currentUser?.username])
 
   const cardRing = isSetPassword || isDashboard ? 'ring-emerald-200/10' : 'ring-rose-200/10'

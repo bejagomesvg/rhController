@@ -59,6 +59,7 @@ export type Action =
   | { type: 'SELECT_FILE'; payload: File | null }
   | { type: 'RESET_FORM' }
   | { type: 'RESET_FILE_INPUT' }
+  | { type: 'SET_SHEET_DATA'; payload: SheetData }
   | { type: 'PUSH_MESSAGE'; payload: string }
   | { type: 'SET_STATUS'; payload: ImportStatus }
   | { type: 'SET_PROGRESS'; payload: number }
@@ -106,6 +107,8 @@ const tableLoadReducer = (state: State, action: Action): State => {
       return { ...initialState, messages: [] }
     case 'RESET_FILE_INPUT':
       return { ...state, selectedFile: null, sheetData: [], columns: [], status: 'idle', progress: 0 }
+    case 'SET_SHEET_DATA':
+      return { ...state, sheetData: action.payload }
     case 'PUSH_MESSAGE':
       return { ...state, messages: [action.payload, ...state.messages].slice(0, 6) }
     case 'SET_STATUS':
@@ -117,7 +120,15 @@ const tableLoadReducer = (state: State, action: Action): State => {
     case 'VALIDATION_ERROR':
       return { ...state, status: 'error', sheetHeaderError: action.payload.headers || [], sheetData: [], columns: [], messages: [...action.payload.messages, ...state.messages].slice(0, 6) }
     case 'FILE_READ_SUCCESS':
-      return { ...state, sheetData: action.payload.data, columns: action.payload.columns, rowErrors: action.payload.rowErrors || [], sheetHeaderError: [], messages: [...action.payload.messages, ...state.messages].slice(0, 6) }
+      return {
+        ...state,
+        sheetData: action.payload.data,
+        columns: action.payload.columns,
+        rowErrors: action.payload.rowErrors || [],
+        sheetHeaderError: [],
+        showPreview: state.showPreview,
+        messages: [...action.payload.messages, ...state.messages].slice(0, 6),
+      }
     case 'SET_PAYROLL_CONFLICT':
       return { ...state, payrollConflictRef: action.payload.ref, payrollConflictDate: action.payload.date, status: 'idle', importFinished: false }
     case 'UPDATE_PAYROLL_PASSWORD':
@@ -324,6 +335,7 @@ const TableLoad: React.FC<TableLoadProps> = ({
     key: string
     direction: 'ascending' | 'descending'
   } | null>({ key: 'date', direction: 'descending' })
+  const previewRef = useRef<HTMLDivElement | null>(null)
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
   const supabaseKey = import.meta.env.VITE_SUPABASE_KEY
@@ -393,6 +405,13 @@ const TableLoad: React.FC<TableLoadProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
 
+  const pushMessage = React.useCallback((message: string) => {
+    dispatch({ type: 'PUSH_MESSAGE', payload: message })
+    if (message.startsWith('XxX')) {
+      dispatch({ type: 'SET_SHEET_TYPE', payload: '' })
+    }
+  }, [dispatch])
+
   const handleSort = (key: string) => {
     let direction: 'ascending' | 'descending' = 'ascending'
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
@@ -401,12 +420,18 @@ const TableLoad: React.FC<TableLoadProps> = ({
     setSortConfig({ key, direction })
   }
 
-  const pushMessage = React.useCallback((message: string) => {
-    dispatch({ type: 'PUSH_MESSAGE', payload: message })
-    if (message.startsWith('XxX')) {
-      dispatch({ type: 'SET_SHEET_TYPE', payload: '' })
-    }
-  }, [dispatch])
+  const handleUpdatePreviewRow = React.useCallback((index: number, updatedRow: Record<string, any>) => {
+    dispatch({
+      type: 'SET_SHEET_DATA',
+      payload: sheetData.map((row, i) => (i === index ? updatedRow : row)),
+    })
+  }, [sheetData])
+
+  const handleDeletePreviewRow = React.useCallback((index: number) => {
+    const filtered = sheetData.filter((_, i) => i !== index)
+    dispatch({ type: 'SET_SHEET_DATA', payload: filtered })
+    pushMessage(`Linha ${index + 1} removida do preview.`)
+  }, [sheetData, pushMessage])
 
   const getEmployeeRegistrationsCached = React.useCallback(async () => {
     if (employeeRegsCache.current) {
@@ -445,14 +470,6 @@ const TableLoad: React.FC<TableLoadProps> = ({
     employeeRegsCache.current = null // limpa cache ao montar para evitar dados stale entre sessões
   }, [fetchAndUpdateHistory])
 
-  // Atualiza histórico periodicamente para refletir mudanças sem recarregar a página
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      fetchAndUpdateHistory({ silent: true }).catch(() => undefined)
-    }, 15000) // 15s
-    return () => window.clearInterval(interval)
-  }, [fetchAndUpdateHistory])
-
   useEffect(() => {
     if (sheetType && !isSupportedSheet) {
       pushMessage(`Regras para "${sheetType}" ainda NAO implementadas.`)
@@ -482,6 +499,12 @@ const TableLoad: React.FC<TableLoadProps> = ({
       }
     }
   }, [status, importFinished, payrollDeletedSuccessfully, messages, payrollConflictRef])
+
+  useEffect(() => {
+    if (showPreview && (sheetData.length > 0 || columns.length > 0)) {
+      previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [showPreview, sheetData, columns])
 
   const handleFileSelect = async (file: File | null) => {
     if (sheetType && !isSupportedSheet) {
@@ -1125,12 +1148,17 @@ const TableLoad: React.FC<TableLoadProps> = ({
       </div>
       </div>
 
-      <DataPreview
-        show={showPreview}
-        data={sheetData}
-        columns={columns}
-        isFolha={sheetType === 'FOLHA PGTO'}
-        rowErrors={rowErrors} />
+      <div ref={previewRef}>
+        <DataPreview
+          show={showPreview}
+          data={sheetData}
+          columns={columns}
+          isFolha={sheetType === 'FOLHA PGTO'}
+          isOvertime={isOvertime}
+          onUpdateRow={isOvertime ? handleUpdatePreviewRow : undefined}
+          onDeleteRow={isOvertime ? handleDeletePreviewRow : undefined}
+          rowErrors={rowErrors} />
+      </div>
 
       <PayrollConflictModal
         state={state}

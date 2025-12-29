@@ -48,13 +48,10 @@ const ImportForm: React.FC<ImportFormProps> = ({
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false)
 
   const handleTogglePreview = () => {
-    if (!hasPreviewData || isPreviewLoading) return
+    if (isPreviewLoading) return
     setIsPreviewLoading(true)
-    // Deixa o spinner visível imediatamente e só libera após aplicar o toggle na próxima pintura
-    requestAnimationFrame(() => {
-      dispatch({ type: 'SET_PREVIEW', payload: !showPreview })
-      requestAnimationFrame(() => setIsPreviewLoading(false))
-    })
+    dispatch({ type: 'SET_PREVIEW', payload: !showPreview })
+    window.setTimeout(() => setIsPreviewLoading(false), 0)
   }
 
   return (
