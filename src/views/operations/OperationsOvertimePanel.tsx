@@ -947,13 +947,20 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
       const key = row.registration ?? row.id
       const salary = salaryByRegistration[row.registration] ?? row.salary ?? 0
       const current = groupedByRegistration.get(key) ?? { hours60: 0, hours100: 0, salary: 0 }
-      current.hours60 += row.hours60Minutes ?? 0
-      current.hours100 += row.hours100Minutes ?? row.plus100Minutes ?? 0
+      // Considera apenas horas positivas (00:00 e negativas são ignoradas)
+      const hours60Positive = Math.max(row.hours60Minutes ?? 0, 0)
+      const hours100Positive = Math.max(row.hours100Minutes ?? row.plus100Minutes ?? 0, 0)
+      current.hours60 += hours60Positive
+      current.hours100 += hours100Positive
       if (salary > 0) current.salary = salary
       groupedByRegistration.set(key, current)
     })
 
-    const total60Minutes = Array.from(groupedByRegistration.values()).reduce((acc, group) => acc + group.hours60, 0)
+    // Para 60% só consideramos horas positivas (pagáveis)
+    const total60Minutes = Array.from(groupedByRegistration.values()).reduce((acc, group) => {
+      const payable = Math.max(group.hours60, 0)
+      return acc + payable
+    }, 0)
     const total100Minutes = Array.from(groupedByRegistration.values()).reduce((acc, group) => acc + group.hours100, 0)
 
     const totalValue60 = Array.from(groupedByRegistration.values()).reduce((acc, group) => {
@@ -1000,8 +1007,10 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
       const sector = sectorRaw
       const key = `${sector}__${row.registration ?? row.id}`
       const current = byRegistrationAndSector.get(key) ?? { sector, hours60: 0, hours100: 0, salary: 0 }
-      current.hours60 += row.hours60Minutes ?? 0
-      current.hours100 += row.hours100Minutes ?? row.plus100Minutes ?? 0
+      const hours60Positive = Math.max(row.hours60Minutes ?? 0, 0)
+      const hours100Positive = Math.max(row.hours100Minutes ?? row.plus100Minutes ?? 0, 0)
+      current.hours60 += hours60Positive
+      current.hours100 += hours100Positive
       const salary = salaryByRegistration[row.registration] ?? row.salary ?? 0
       if (salary > 0) current.salary = salary
       byRegistrationAndSector.set(key, current)
