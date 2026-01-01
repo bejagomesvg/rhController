@@ -207,7 +207,15 @@ export const transformOvertimeApuracao = (buffer: ArrayBuffer): OvertimeTransfor
     return { codigo: codigoValor, horaValor }
   }
 
-  matriz.forEach((row) => {
+  const isTotalGeral = (row: any[]) => {
+    const eColumnValue = row?.[4]
+    if (eColumnValue === null || eColumnValue === undefined) return false
+    return normalize(eColumnValue).trim().toLowerCase() === 'total geral:'
+  }
+
+  for (const row of matriz) {
+    if (isTotalGeral(row)) break
+
     const detectado = detectarMatriculaNome(row)
     if (detectado) {
       matriculaAtual = detectado.cadastro
@@ -235,7 +243,7 @@ export const transformOvertimeApuracao = (buffer: ArrayBuffer): OvertimeTransfor
         }
       }
     }
-  })
+  }
 
   const rows: OvertimeTransformRow[] = Array.from(colaboradores.values())
     .sort((a, b) => a.cadastro.localeCompare(b.cadastro))
