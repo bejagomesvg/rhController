@@ -155,7 +155,13 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
     return date.toLocaleString('pt-BR', { month: 'short' }).toUpperCase()
   }
 
+  const formatRefLabel = () => {
+    if (!monthFilter || !yearFilter) return ''
+    return `${String(monthFilter).padStart(2, '0')}/${yearFilter}`
+  }
+
   const titleSuffix = monthFilter === '' ? ' - ANUAL' : ''
+  const refLabel = monthFilter !== '' ? ` - Ref. ${formatRefLabel()}` : ''
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseKey) {
@@ -791,7 +797,9 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-gradient-to-br from-indigo-300/25 via-indigo-500/20 to-slate-900/45 border border-indigo-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Horas Extras</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Horas Extras${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <PiggyBank className="w-5 h-5 text-indigo-300" />
               </div>
@@ -815,7 +823,9 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-gradient-to-br from-green-300/25 via-green-500/20 to-slate-900/45 border border-green-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">DSR s/ Horas Extras</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`DSR s/ Horas Extras${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <Users className="w-5 h-5 text-green-300" />
               </div>
@@ -831,7 +841,9 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-gradient-to-br from-yellow-300/25 via-yellow-500/20 to-slate-900/45 border border-yellow-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Custos c/ Atestados</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Custos c/ Atestados${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <ReceiptText className="w-5 h-5 text-yellow-300" />
               </div>
@@ -842,10 +854,10 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
               </p>
               <div className="flex items-center justify-between gap-6 flex-wrap text-[11px] text-white/70 font-semibold mt-1 w-full max-w-[280px]">
                 <span>
-                  Normal: <span className="text-white">{isLoadingCosts ? '...' : formatCurrency(costIndicators.atestadosNormal)}</span>
+                  N: <span className="text-white">{isLoadingCosts ? '...' : formatCurrency(costIndicators.atestadosNormal)}</span>
                 </span>
                 <span>
-                  Not.: <span className="text-white">{isLoadingCosts ? '...' : formatCurrency(costIndicators.atestadosNoturno)}</span>
+                  NT: <span className="text-white">{isLoadingCosts ? '...' : formatCurrency(costIndicators.atestadosNoturno)}</span>
                 </span>
               </div>
             </div>
@@ -854,7 +866,9 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-gradient-to-br from-red-300/25 via-red-500/20 to-slate-900/45 border border-red-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Aux. Alimentacao</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Aux. Alimentacao${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <Factory className="w-5 h-5 text-red-300" />
               </div>
@@ -872,8 +886,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Horas Extras por {monthFilter === '' ? 'Mês' : 'Setor'}
-              {titleSuffix}
+              {`Valores das Horas Extras por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
             </p>
             <span className="text-emerald-300 text-xs font-semibold">
               {formatCurrency(extraChartData.reduce((sum, item) => sum + item.totalValue, 0))}
@@ -928,8 +941,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Referências de Horas Extras por {monthFilter === '' ? 'Mês' : 'Setor'}
-              {titleSuffix}
+              {`Referências de Horas Extras por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
             </p>
             <span className="text-emerald-300 text-xs font-semibold">
               {formatNumber(extraReferenceChartData.reduce((sum, item) => sum + item.totalValue, 0))}
@@ -1000,8 +1012,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Horas Extras 60% x 100% por {monthFilter === '' ? 'Mês' : 'Setor'}
-              {titleSuffix}
+              {`Valores das Horas Extras 60% x 100% por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
             </p>
             <div className="flex items-center gap-4 text-xs font-semibold">
               <span className="flex items-center gap-1 text-emerald-300">
@@ -1085,8 +1096,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Referências 60% x 100% por {monthFilter === '' ? 'Mês' : 'Setor'}
-              {titleSuffix}
+              {`Referências 60% x 100% por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
             </p>
             <div className="flex items-center gap-4 text-xs font-semibold">
               <span className="flex items-center gap-1 text-emerald-300">
@@ -1170,7 +1180,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
           <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
             <div className="flex items-center justify-between">
               <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                Top 10 Colaborador Valor{titleSuffix}
+                {`Top 10 Colaborador Valor${titleSuffix}${refLabel}`}
               </p>
               <span className="text-emerald-300 text-xs font-semibold">
                 {formatCurrency(topValueChartData.reduce((sum, item) => sum + item.totalValue, 0))}
@@ -1220,7 +1230,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
           <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
             <div className="flex items-center justify-between">
               <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                Top 10 Colaborador Referência{titleSuffix}
+                {`Top 10 Colaborador Referência${titleSuffix}${refLabel}`}
               </p>
               <span className="text-emerald-300 text-xs font-semibold">
                 {formatNumber(topReferenceChartData.reduce((sum, item) => sum + item.totalRef, 0))}
@@ -1272,8 +1282,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              DSR s/ Horas Extras por {monthFilter === '' ? 'Mês' : 'Setor'}
-              {titleSuffix}
+              {`DSR s/ Horas Extras por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
             </p>
             <span className="text-emerald-300 text-xs font-semibold">
               {formatCurrency(dsrChartData.reduce((sum, item) => sum + item.totalValue, 0))}
@@ -1326,8 +1335,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              Atestados por {monthFilter === '' ? 'Mês' : 'Setor'}
-              {titleSuffix}
+              {`Custos com Atestados por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
             </p>
             <span className="text-emerald-300 text-xs font-semibold">
               {formatCurrency(atestadosChartData.reduce((sum, item) => sum + item.totalValue, 0))}

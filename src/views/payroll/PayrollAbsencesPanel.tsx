@@ -193,6 +193,14 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
     return value.toLocaleString('pt-BR')
   }
 
+  const formatRefLabel = () => {
+    if (!monthFilter || !yearFilter) return ''
+    return `${String(monthFilter).padStart(2, '0')}/${yearFilter}`
+  }
+
+  const titleSuffix = monthFilter === '' ? ' - ANUAL' : ''
+  const refLabel = monthFilter !== '' ? ` - Ref. ${formatRefLabel()}` : ''
+
   const formatPercent = (value: number) => {
     const safe = Number.isFinite(value) ? value : 0
     return `${safe.toFixed(1)}%`
@@ -908,27 +916,53 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
   )
 
   const extraIndicators = useMemo(() => {
-    const totalCollaborators = closingRegistrations.size
+    const isAllMonths = monthFilter === ''
+
+    const totalCollaborators = isAllMonths
+      ? Array.from(closingRegistrationsByMonth.values()).reduce((sum, regs) => sum + regs.size, 0)
+      : closingRegistrations.size
 
     let activeEmployees = 0
-    closingRegistrations.forEach((reg) => {
-      const status = employeeInfo.get(reg)?.status
-      if (status === 1) activeEmployees += 1
-    })
+    if (isAllMonths) {
+      closingRegistrationsByMonth.forEach((regs) => {
+        regs.forEach((reg) => {
+          const status = employeeInfo.get(reg)?.status
+          if (status === 1) activeEmployees += 1
+        })
+      })
+    } else {
+      closingRegistrations.forEach((reg) => {
+        const status = employeeInfo.get(reg)?.status
+        if (status === 1) activeEmployees += 1
+      })
+    }
 
     let totalAbsenceEvents = 0
-    closingRegistrations.forEach((reg) => {
-      const status = employeeInfo.get(reg)?.status
-      if (status === 1 || status === 2 || status === 7) return
-      totalAbsenceEvents += 1
-    })
+    if (isAllMonths) {
+      closingRegistrationsByMonth.forEach((regs) => {
+        regs.forEach((reg) => {
+          const status = employeeInfo.get(reg)?.status
+          if (status === 1 || status === 2 || status === 7) return
+          totalAbsenceEvents += 1
+        })
+      })
+    } else {
+      closingRegistrations.forEach((reg) => {
+        const status = employeeInfo.get(reg)?.status
+        if (status === 1 || status === 2 || status === 7) return
+        totalAbsenceEvents += 1
+      })
+    }
 
     const vacationEmployees = new Set<string>()
-    closingRegistrations.forEach((reg) => {
-      const status = employeeInfo.get(reg)?.status
-      if (status === 2) {
-        vacationEmployees.add(reg)
-      }
+    const vacationSource = isAllMonths ? Array.from(closingRegistrationsByMonth.values()) : [closingRegistrations]
+    vacationSource.forEach((regs) => {
+      regs.forEach((reg) => {
+        const status = employeeInfo.get(reg)?.status
+        if (status === 2) {
+          vacationEmployees.add(`${reg}-${status}`)
+        }
+      })
     })
 
     return {
@@ -937,7 +971,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       activeEmployees,
       vacationEmployees: vacationEmployees.size,
     }
-  }, [absenceEventRows, closingRegistrations, employeeInfo])
+  }, [absenceEventRows, closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter])
 
   const absenceByStatusChartData = useMemo(() => {
     const isAllMonths = monthFilter === ''
@@ -976,6 +1010,29 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       color: CHART_COLORS[idx % CHART_COLORS.length],
     }))
   }, [closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter, statusDescriptions])
+
+  const vacationBySectorChartData = useMemo(() => {
+    const isAllMonths = monthFilter === ''
+    const map = new Map<string, number>()
+
+    const accumulate = (reg: string) => {
+      const info = employeeInfo.get(reg)
+      if (!info) return
+      if (info.status !== 2) return
+      const sector = abbreviateSector(info.sector ?? null)
+      map.set(sector, (map.get(sector) || 0) + 1)
+    }
+
+    if (isAllMonths) {
+      closingRegistrationsByMonth.forEach((regs) => regs.forEach(accumulate))
+    } else {
+      closingRegistrations.forEach(accumulate)
+    }
+
+    return Array.from(map.entries())
+      .map(([label, totalValue], idx) => ({ label, totalValue, color: CHART_COLORS[idx % CHART_COLORS.length] }))
+      .sort((a, b) => b.totalValue - a.totalValue)
+  }, [closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter])
 
   const handleClearFilters = () => {
     setCompanyFilter(companyOptions.length ? String(companyOptions[0]) : '')
@@ -1065,7 +1122,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-gradient-to-br from-cyan-300/25 via-cyan-500/20 to-slate-900/45 border border-cyan-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Horas Trabalhadas</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Horas Trabalhadas${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <CalendarX className="w-5 h-5 text-cyan-300" />
               </div>
@@ -1096,7 +1155,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-gradient-to-br from-purple-300/25 via-purple-500/20 to-slate-900/45 border border-purple-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Horas Ausentes</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Horas Ausentes${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <CalendarMinus2 className="w-5 h-5 text-purple-300" />
               </div>
@@ -1128,7 +1189,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
               <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                Tx de Absenteismo{monthFilter === '' ? ' - ANUAL' : ''}
+                {`Tx de Absenteismo${titleSuffix}${refLabel}`}
               </p>
               <div className="-mt-1">
                 <Hospital className="w-5 h-5 text-pink-300" />
@@ -1147,7 +1208,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
               <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                Colab. c/ Ausencia{monthFilter === '' ? ' - ANUAL' : ''}
+                {`Colab. c/ Ausencia${titleSuffix}${refLabel}`}
               </p>
               <div className="-mt-1">
                 <Users className="w-5 h-5 text-teal-300" />
@@ -1180,7 +1241,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
               <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-                Total Colaboradores{monthFilter === '' ? ' - ANUAL' : ''}
+                {`Total Colaboradores${titleSuffix}${refLabel}`}
               </p>
               <div className="-mt-1">
                 <UserX className="w-5 h-5 text-amber-300" />
@@ -1198,7 +1259,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-gradient-to-br from-emerald-300/25 via-emerald-500/20 to-slate-900/45 border border-emerald-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Total Afastamentos</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Total Afastamentos${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <Activity className="w-5 h-5 text-emerald-300" />
               </div>
@@ -1215,7 +1278,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-gradient-to-br from-rose-300/25 via-rose-500/20 to-slate-900/45 border border-rose-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Colaboradores Férias</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Colaboradores Férias${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <Plane className="w-5 h-5 text-rose-300" />
               </div>
@@ -1232,7 +1297,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-gradient-to-br from-indigo-300/25 via-indigo-500/20 to-slate-900/45 border border-indigo-300/30 rounded-xl p-3 shadow-lg">
           <div className="flex flex-col h-full">
             <div className="flex items-start justify-between">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Colaboradores Ativos</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Colaboradores Ativos${titleSuffix}${refLabel}`}
+              </p>
               <div className="-mt-1">
                 <UserCheck className="w-5 h-5 text-indigo-300" />
               </div>
@@ -1251,7 +1318,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between text-white mb-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Total Colaboradores & Colaboradores Ativos</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Total Colaboradores & Colaboradores Ativos${titleSuffix}${refLabel}`}
+            </p>
           </div>
           <div className="flex items-center gap-4 text-xs">
             <span className="flex items-center gap-2">
@@ -1266,9 +1335,9 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           </div>
         </div>
         {headcountBySectorChartData.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+          <div className="h-72 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
         ) : (
-          <div className="relative mt-4 h-64">
+          <div className="relative mt-4 h-72">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={headcountBySectorChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
@@ -1282,16 +1351,19 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <YAxis
                   tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                   axisLine={{ stroke: '#475569' }}
+                  tickCount={8}
                 />
                 <RechartsTooltip content={headcountTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
                   dataKey="total"
                   name="Total"
-                  fill="#0ea5e9"
+                  fill="#38bdf8"
+                  stroke="#7dd3fc"
+                  strokeWidth={1.5}
                   radius={[3, 3, 0, 0]}
                   isAnimationActive={false}
                   animationDuration={0}
-                  activeBar={ACTIVE_BAR_HOVER}
+                   activeBar={ACTIVE_BAR_HOVER}
                 >
                   <LabelList
                     dataKey="total"
@@ -1305,9 +1377,13 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                   type="monotone"
                   dataKey="active"
                   name="Ativos"
-                  stroke="#22c55e"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: '#22c55e' }}
+                  stroke="#f59e0b"
+                  strokeWidth={3}
+                  dot={{ r: 5, fill: '#f59e0b', stroke: '#fde68a', strokeWidth: 1 }}
+                  activeDot={{ r: 6, fill: '#fcd34d', stroke: '#f59e0b', strokeWidth: 2 }}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  z={10}
                   isAnimationActive={false}
                 />
               </ComposedChart>
@@ -1320,16 +1396,18 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between text-white mb-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Horas Trabalhadas por Setor</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Horas Trabalhadas por Setor${titleSuffix}${refLabel}`}
+            </p>
           </div>
           <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(workedHours.total)} Hrs</span>
         </div>
         {isLoadingWorkedHours ? (
-          <div className="h-64 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
+          <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
         ) : workedHoursBySector.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+          <div className="h-72 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
         ) : (
-          <div className="relative mt-4 h-64">
+          <div className="relative mt-4 h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={workedHoursBySector} margin={{ top: 55, right: 5, left: 5, bottom: 13}}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
@@ -1343,6 +1421,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <YAxis
                   tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                   axisLine={{ stroke: '#475569' }}
+                  tickCount={8}
                 />
                 <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
@@ -1370,16 +1449,16 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between">
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-            Ausências por {monthFilter === '' ? 'Mês' : 'Setor'}
+            {`Ausências por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
           </p>
           <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(absenceIndicators.totalAbsenceDays)} Hrs</span>
         </div>
         {isLoadingAbsences ? (
-          <div className="h-64 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
+          <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
         ) : absenceBySectorChartData.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+          <div className="h-72 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
         ) : (
-          <div className="mt-3 h-64 rounded-lg border border-white/10 bg-white/5 chart-container">
+          <div className="mt-3 h-72 rounded-lg border border-white/10 bg-white/5 chart-container">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={absenceBySectorChartData} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
@@ -1393,6 +1472,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <YAxis
                   tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                   axisLine={{ stroke: '#475569' }}
+                  tickCount={8}
                 />
                 <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
@@ -1425,16 +1505,18 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between text-white mb-3">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Ausências por Tipo</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Ausências por Tipo${titleSuffix}${refLabel}`}
+              </p>
             </div>
             <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(absenceIndicators.totalAbsenceDays)} Hrs</span>
           </div>
           {isLoadingAbsences ? (
-            <div className="h-64 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
+            <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
           ) : absenceByTypeChartData.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+            <div className="h-72 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
           ) : (
-            <div className="relative mt-4 h-64">
+            <div className="relative mt-4 h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={absenceByTypeChartData} margin={{ top: 20, right: 5, left: 5, bottom: 3 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
@@ -1448,6 +1530,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <YAxis
                   tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                   axisLine={{ stroke: '#475569' }}
+                  tickCount={8}
                 />
                 <RechartsTooltip content={valueTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
@@ -1479,18 +1562,20 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between text-white mb-3">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">Afastamento por Tipo</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Afastamento por Tipo${titleSuffix}${refLabel}`}
+              </p>
             </div>
             <span className="text-emerald-300 text-xs font-semibold">
               {formatIndicator(extraIndicators.totalAbsenceEvents)}
             </span>
           </div>
           {isLoadingAbsences ? (
-            <div className="h-64 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
+            <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
           ) : absenceByStatusChartData.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+            <div className="h-72 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
           ) : (
-            <div className="relative mt-4 h-64">
+            <div className="relative mt-4 h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={absenceByStatusChartData} margin={{ top: 20, right: 5, left: 5, bottom: 3 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
@@ -1504,6 +1589,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 <YAxis
                   tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                   axisLine={{ stroke: '#475569' }}
+                  tickCount={8}
                 />
                 <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
                 <Bar
@@ -1523,6 +1609,58 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                       fill="#FFFFFF"
                       fontSize={12}
 
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        {/* GRAFICO - COLABORADORES EM FÉRIAS POR SETOR */}
+        <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg xl:col-span-2">
+          <div className="flex items-center justify-between text-white mb-3">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Colaboradores em Férias por Setor${titleSuffix}${refLabel}`}
+            </p>
+            <span className="text-emerald-300 text-xs font-semibold">
+              {formatIndicator(vacationBySectorChartData.reduce((sum, item) => sum + item.totalValue, 0))}
+            </span>
+          </div>
+          {isLoadingAbsences ? (
+            <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
+          ) : vacationBySectorChartData.length === 0 ? (
+            <div className="h-72 flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+          ) : (
+            <div className="relative mt-4 h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={vacationBySectorChartData} margin={{ top: 20, right: 5, left: 5, bottom: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                  <XAxis
+                    dataKey="label"
+                    interval={0}
+                    height={80}
+                    tick={<SectorTick />}
+                    axisLine={{ stroke: '#475569' }}
+                  />
+                  <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
+                  <Bar
+                    dataKey="totalValue"
+                    radius={[3, 3, 0, 0]}
+                    isAnimationActive={false}
+                    animationDuration={0}
+                    activeBar={ACTIVE_BAR_HOVER}
+                  >
+                    {vacationBySectorChartData.map((entry) => (
+                      <Cell key={entry.label} fill={entry.color} />
+                    ))}
+                    <LabelList
+                      dataKey="totalValue"
+                      position="top"
+                      formatter={formatLabelNumber}
+                      fill="#FFFFFF"
+                      fontSize={12}
                     />
                   </Bar>
                 </BarChart>

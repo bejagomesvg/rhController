@@ -67,6 +67,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
   const [monthFilter, setMonthFilter] = useState('')
   const [sectorFilter, setSectorFilter] = useState('')
   const [hasInitializedMonth, setHasInitializedMonth] = useState(false)
+  const [pieActiveIndex, setPieActiveIndex] = useState<number>(-1)
   const CHART_COLORS = ['#8b5cf6', '#f97316', '#ef4444', '#f59e0b', '#22c55e', '#0ea5e9']
 
   const parseYearMonth = (value?: string | null) => {
@@ -291,26 +292,46 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     }
   }, [sectorFilter, sectorOptions])
 
-  const closingRegistrations = useMemo(() => {
+  const { closingRegistrations, closingReferenceMonth } = useMemo(() => {
     const regs = new Set<string>()
     const targetYear = Number(yearFilter)
-    const targetMonth = Number(monthFilter)
-    const hasMonthFilter = monthFilter !== ''
+    const explicitMonth = monthFilter !== '' ? Number(monthFilter) : null
+    let targetMonth = explicitMonth
+
+    // Se for cálculo anual (sem mês selecionado), usa o último mês fechado disponível
+    if (explicitMonth === null) {
+      let latestMonth = 0
+      closingRows.forEach((row) => {
+        if (companyFilter && String(row.company ?? '') !== companyFilter) return
+        const parsed = parseYearMonth(row.competence)
+        if (!parsed) return
+        if (yearFilter && parsed.year !== targetYear) return
+        const regKey = normalizeRegistration(row.registration)
+        if (!regKey) return
+        if (sectorFilter) {
+          const sector = employeeInfo.get(regKey)?.sector ?? null
+          if (!sector || sector !== sectorFilter) return
+        }
+        if (parsed.month > latestMonth) latestMonth = parsed.month
+      })
+      targetMonth = latestMonth || null
+    }
+
     closingRows.forEach((row) => {
       if (companyFilter && String(row.company ?? '') !== companyFilter) return
       const parsed = parseYearMonth(row.competence)
-      if (yearFilter && (!parsed || parsed.year !== targetYear)) return
-      if (hasMonthFilter && (!parsed || parsed.month !== targetMonth)) return
-      if (sectorFilter) {
-        const regKey = normalizeRegistration(row.registration)
-        const sector = regKey ? employeeInfo.get(regKey)?.sector ?? null : null
-        if (!sector || sector !== sectorFilter) return
-      }
+      if (!parsed) return
+      if (yearFilter && parsed.year !== targetYear) return
+      if (targetMonth !== null && parsed.month !== targetMonth) return
       const regKey = normalizeRegistration(row.registration)
       if (!regKey) return
+      if (sectorFilter) {
+        const sector = employeeInfo.get(regKey)?.sector ?? null
+        if (!sector || sector !== sectorFilter) return
+      }
       regs.add(regKey)
     })
-    return regs
+    return { closingRegistrations: regs, closingReferenceMonth: targetMonth }
   }, [closingRows, companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
   const closingRegistrationsByMonth = useMemo(() => {
@@ -471,8 +492,6 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     return value.toLocaleString('pt-BR')
   }
 
-  const titleSuffix = monthFilter === '' ? ' - ANUAL' : ''
-
   const formatNumberTwoDecimals = (value: number | string | null | undefined) => {
     const numeric = Number(value ?? 0)
     if (!Number.isFinite(numeric)) return '0,00'
@@ -484,14 +503,31 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     return `${safe.toFixed(1)}%`
   }
 
+  const formatRefLabel = (month?: number | null) => {
+    if (!month || !yearFilter) return ''
+    return `${String(month).padStart(2, '0')}/${yearFilter}`
+  }
+
+  const titleSuffix = monthFilter === '' ? ' - ANUAL' : ''
+  const refLabel = monthFilter !== '' && closingReferenceMonth ? ` - Ref. ${formatRefLabel(closingReferenceMonth)}` : ''
+
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(value)
 
   const turnoverCounts = useMemo(() => {
     if (!yearFilter) return { admissions: 0, dismissals: 0 }
     const targetYear = Number(yearFilter)
-    const targetMonth = Number(monthFilter)
-    const hasMonthFilter = monthFilter !== ''
+
+    // Meses considerados: se mês selecionado, só ele; se anual, somente meses que têm fechamento
+    const allowedMonths =
+      monthFilter !== ''
+        ? [Number(monthFilter)]
+        : Array.from(closingRegistrationsByMonth.keys())
+
+    if (allowedMonths.length === 0) return { admissions: 0, dismissals: 0 }
+
+    const allowedSet = new Set(allowedMonths)
+
     let admissions = 0
     let dismissals = 0
     employeeInfo.forEach((info) => {
@@ -499,18 +535,18 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       if (companyFilter && String(info.company ?? '') !== companyFilter) return
       if (sectorFilter && info.sector !== sectorFilter) return
       const hiring = parseYearMonth(info.date_hiring)
-      if (hiring && hiring.year === targetYear && (!hasMonthFilter || hiring.month === targetMonth)) {
+      if (hiring && hiring.year === targetYear && allowedSet.has(hiring.month)) {
         admissions += 1
       }
       if (Number(info.status) === 7) {
         const demission = parseYearMonth(info.date_status)
-        if (demission && demission.year === targetYear && (!hasMonthFilter || demission.month === targetMonth)) {
+        if (demission && demission.year === targetYear && allowedSet.has(demission.month)) {
           dismissals += 1
         }
       }
     })
     return { admissions, dismissals }
-  }, [companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
+  }, [closingRegistrationsByMonth, companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
   const turnoverPercent = useMemo(() => {
     const totalEmployees = closingRegistrations.size
@@ -680,7 +716,8 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
   const collaboratorSectorChartData = useMemo(() => {
     const isAllMonths = monthFilter === ''
     if (isAllMonths) {
-      return monthOptions.map((month, idx) => {
+      const allowedMonths = Array.from(closingRegistrationsByMonth.keys())
+      return allowedMonths.map((month, idx) => {
         const regs = closingRegistrationsByMonth.get(month) ?? new Set<string>()
         return {
           label: formatMonthLabel(month),
@@ -699,6 +736,17 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       .map(([label, totalValue], idx) => ({ label, totalValue, color: CHART_COLORS[idx % CHART_COLORS.length] }))
       .sort((a, b) => b.totalValue - a.totalValue)
   }, [closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter, monthOptions])
+
+  const collaboratorSectorTotal = useMemo(() => {
+    if (monthFilter === '') {
+      let total = 0
+      closingRegistrationsByMonth.forEach((regs) => {
+        total += regs.size
+      })
+      return total
+    }
+    return closingRegistrations.size
+  }, [closingRegistrations, closingRegistrationsByMonth, monthFilter])
 
   const salarySectorSummary = useMemo(() => {
     const sectorMap = new Map<string, number>()
@@ -1099,14 +1147,16 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       <div className="bg-gradient-to-br from-violet-300/25 via-violet-500/20 to-slate-900/45 border border-violet-300/30 rounded-xl p-3 shadow-lg">
         <div className="flex flex-col h-full">
           <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Colaboradores${titleSuffix}`}</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Colaboradores${titleSuffix}${refLabel}`}
+            </p>
             <div className="-mt-1">
               <Users className="w-5 h-5 text-violet-300" />
             </div>
           </div>
           <div className="flex-1 flex items-center justify-center">
             <p className="text-2xl font-semibold text-violet-200">
-              {isLoadingPayroll ? '...' : formatIndicator(closingRegistrations.size)}
+              {isLoadingPayroll ? '...' : formatIndicator(collaboratorSectorTotal)}
             </p>
           </div>
           <div className="h-4" />
@@ -1115,7 +1165,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       <div className="bg-gradient-to-br from-orange-300/25 via-orange-500/20 to-slate-900/45 border border-orange-300/30 rounded-xl p-3 shadow-lg">
         <div className="flex flex-col h-full">
           <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Turnover${titleSuffix}`}</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Turnover${titleSuffix}${refLabel}`}
+            </p>
             <div className="-mt-1">
               <RefreshCcw className="w-5 h-5 text-orange-300" />
             </div>
@@ -1138,7 +1190,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       <div className="bg-gradient-to-br from-red-300/25 via-red-500/20 to-slate-900/45 border border-red-300/30 rounded-xl p-3 shadow-lg">
         <div className="flex flex-col h-full">
           <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Absenteismo${titleSuffix}`}</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Absenteismo${titleSuffix}${refLabel}`}
+            </p>
             <div className="-mt-1">
               <Hospital className="w-5 h-5 text-red-300" />
             </div>
@@ -1161,7 +1215,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       <div className="bg-gradient-to-br from-amber-300/25 via-amber-500/20 to-slate-900/45 border border-amber-300/30 rounded-xl p-3 shadow-lg">
         <div className="flex flex-col h-full">
           <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Abate${titleSuffix}`}</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Abate${titleSuffix}${refLabel}`}
+            </p>
             <div className="-mt-1">
               <Factory className="w-5 h-5 text-amber-300" />
             </div>
@@ -1178,7 +1234,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between text-white mb-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Salario por Setor${titleSuffix}`}</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Salario por Setor${titleSuffix}${refLabel}`}
+            </p>
           </div>
           <span className="text-emerald-300 text-xs font-semibold">{formatCurrency(eventsTotalValue)}</span>
         </div>
@@ -1233,21 +1291,23 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
         )}
       </div>
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Indicadores rapidos${titleSuffix}`}</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          {`Indicadores rapidos${titleSuffix}${refLabel}`}
+        </p>
         <div className="mt-4 space-y-3">
           {[
-            { label: 'Horas extras', value: formatIndicator(payrollIndicators.extras) },
-            { label: 'DSR', value: formatIndicator(payrollIndicators.dsr) },
-            { label: 'Atestados', value: formatIndicator(payrollIndicators.atestadosVolue) },
-            { label: 'Ajuda de Custo', value: formatIndicator(payrollIndicators.ajuda) },
+            { label: 'Horas extras', value: formatCurrency(payrollIndicators.extras || 0) },
+            { label: 'DSR', value: formatCurrency(payrollIndicators.dsr || 0) },
+            { label: 'Atestados', value: formatCurrency(payrollIndicators.atestadosVolue || 0) },
+            { label: 'Ajuda de Custo', value: formatCurrency(payrollIndicators.ajuda || 0) },
             { label: 'Beneficio', value: '--' },
           ].map((item) => (
             <div
               key={item.label}
-              className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+              className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-1"
             >
               <span className="text-white/70 text-xs">{item.label}</span>
-              <span className="text-emerald-300 text-xs font-semibold">
+              <span className="text-emerald-300 text-lg font-semibold">
                 {isLoadingPayroll ? '...' : item.value}
               </span>
             </div>
@@ -1258,12 +1318,14 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
     <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Colaboradores por Setor${titleSuffix}`}</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          {`Colaboradores por Setor${titleSuffix}${refLabel}`}
+        </p>
         <span className="text-emerald-300 text-xs font-semibold">
-          {closingRegistrations.size.toLocaleString('pt-BR')}
+          {collaboratorSectorTotal.toLocaleString('pt-BR')}
         </span>
       </div>
-      <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+      <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
         {collaboratorSectorChartData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-white/50 text-sm">
             Sem dados para exibir.
@@ -1301,7 +1363,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
     <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Admissao e Demissao por setor${titleSuffix}`}</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          {`Admissao e Demissao por setor${titleSuffix}${refLabel}`}
+        </p>
         <div className="flex items-center gap-4 text-xs font-semibold">
           <span className="flex items-center gap-1 text-emerald-300">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -1351,7 +1415,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
     <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Absenteísmo por Setor${titleSuffix}`}</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          {`Absenteísmo por Setor${titleSuffix}${refLabel}`}
+        </p>
       </div>
       <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
         {isLoadingPayroll ? (
@@ -1372,10 +1438,11 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis
-                tickFormatter={(tick) => `${tick.toFixed(0)}%`}
+                tickFormatter={(tick) => `${tick.toFixed(1)}%`}
                 tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                 axisLine={{ stroke: '#475569' }}
-                tickCount={8}
+                domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
+                tickCount={6}
               />
               <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'transparent' }} />
               <Bar dataKey="value" name="Absenteísmo" radius={[3, 3, 0, 0]} isAnimationActive={false}>
@@ -1404,7 +1471,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
     <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Turnover por Setor${titleSuffix}`}</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+          {`Turnover por Setor${titleSuffix}${refLabel}`}
+        </p>
       </div>
       <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
         {turnoverSectorPercentChartData.length === 0 ? (
@@ -1423,10 +1492,11 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis
-                tickFormatter={(tick) => `${tick.toFixed(0)}%`}
+                tickFormatter={(tick) => `${tick.toFixed(1)}%`}
                 tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
                 axisLine={{ stroke: '#475569' }}
-                tickCount={8}
+                domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
+                tickCount={6}
               />
               <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'transparent' }} />
               <Bar dataKey="value" name="Turnover" radius={[3, 3, 0, 0]} isAnimationActive={false}>
@@ -1456,31 +1526,50 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     <div className="grid gap-4 xl:grid-cols-2">
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Colaboradores por Gênero${titleSuffix}`}</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Colaboradores por Gênero${titleSuffix}${refLabel}`}
+          </p>
+          <span className="text-emerald-300 text-xs font-semibold">
+            Total: {closingRegistrations.size.toLocaleString('pt-BR')}
+          </span>
         </div>
       <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
           {genderChartData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
           ) : (
             <div className="relative h-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+              {/* hover state do pie */}
+              {/**/}
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
               <RechartsTooltip content={genderTooltip} />
-                  <Pie
-                    data={genderChartData}
-                    dataKey="value"
-                    nameKey="label"
-                    cx="50%"
-                    cy="50%"
-                  outerRadius={80}
-                  innerRadius={45}
-                  paddingAngle={2}
-                  label={(entry) => `${(entry.percent ?? 0).toFixed(1)}%`}
-                  isAnimationActive={false}
-                >
-                    {genderChartData.map((entry) => (
-                      <Cell key={entry.label} fill={entry.color} />
-                    ))}
+              <Pie
+                data={genderChartData}
+                dataKey="value"
+                nameKey="label"
+                cx="50%"
+                cy="50%"
+                outerRadius={120}
+                innerRadius={75}
+                paddingAngle={4}
+                label={(entry) => `${(entry.percent ?? 0).toFixed(1)}%`}
+                isAnimationActive={false}
+                  >
+                    {genderChartData.map((entry, idx) => {
+                      const isActive = idx === pieActiveIndex
+                      return (
+                        <Cell
+                          key={entry.label}
+                          fill={entry.color}
+                          stroke={entry.color}
+                          strokeWidth={isActive ? 4 : 0.8}
+                          onMouseEnter={() => setPieActiveIndex(idx)}
+                          onMouseLeave={() => setPieActiveIndex(-1)}
+                          transform={isActive ? 'scale(1.03)' : undefined}
+                          style={{ transition: 'transform 120ms ease, stroke-width 120ms ease' }}
+                        />
+                      )
+                    })}
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
@@ -1507,7 +1596,12 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">{`Tempo de Empresa${titleSuffix}`}</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Tempo de Empresa${titleSuffix}${refLabel}`}
+          </p>
+          <span className="text-emerald-300 text-xs font-semibold">
+            Total: {closingRegistrations.size.toLocaleString('pt-BR')}
+          </span>
         </div>
         <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
           {tenureChartData.length === 0 ? (

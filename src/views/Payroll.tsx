@@ -451,11 +451,36 @@ const Payroll: React.FC<PayrollProps> = ({
 
   const formatDateShort = (val?: string | null) => {
     if (!val) return '-'
-    const parsed = new Date(val)
-    if (Number.isNaN(parsed.getTime())) return String(val)
-    const dd = String(parsed.getUTCDate()).padStart(2, '0')
-    const mm = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-    const yyyy = parsed.getUTCFullYear()
+    const str = String(val).trim()
+
+    // Parse local date/time to avoid timezone shifting (e.g., midnight UTC showing as previous day)
+    const match = str.match(
+      /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?/,
+    )
+    if (match) {
+      const [, y, m, d, hh, mi] = match
+      const year = Number(y)
+      const month = Number(m) - 1
+      const day = Number(d)
+      const hours = hh !== undefined ? Number(hh) : 0
+      const minutes = mi !== undefined ? Number(mi) : 0
+      const local = new Date(year, month, day, hours, minutes)
+      const dd = String(local.getDate()).padStart(2, '0')
+      const mm = String(local.getMonth() + 1).padStart(2, '0')
+      const yyyy = local.getFullYear()
+      if (hh !== undefined && mi !== undefined) {
+        const hhStr = String(hours).padStart(2, '0')
+        const miStr = String(minutes).padStart(2, '0')
+        return `${dd}/${mm}/${yyyy} ${hhStr}:${miStr}`
+      }
+      return `${dd}/${mm}/${yyyy}`
+    }
+
+    const parsed = new Date(str)
+    if (Number.isNaN(parsed.getTime())) return str
+    const dd = String(parsed.getDate()).padStart(2, '0')
+    const mm = String(parsed.getMonth() + 1).padStart(2, '0')
+    const yyyy = parsed.getFullYear()
     return `${dd}/${mm}/${yyyy}`
   }
 
@@ -518,20 +543,8 @@ const Payroll: React.FC<PayrollProps> = ({
     }
   }, [closingMonths, closingMonthFilter])
 
-  const filteredClosingRows = useMemo(() => {
-    return closingRows.filter((row) => {
-      if (closingYearFilter || closingMonthFilter) {
-        if (!row.competence) return false
-        const date = new Date(row.competence)
-        if (Number.isNaN(date.getTime())) return false
-        const year = date.getUTCFullYear()
-        const month = date.getUTCMonth() + 1
-        if (closingYearFilter && String(year) !== closingYearFilter) return false
-        if (closingMonthFilter && String(month) !== closingMonthFilter) return false
-      }
-      return true
-    })
-  }, [closingRows, closingYearFilter, closingMonthFilter])
+  // Tabela de fechamentos passa a exibir todos os registros, independente do filtro de competência
+  const filteredClosingRows = useMemo(() => closingRows, [closingRows])
 
   const admissionDemissionCounts = useMemo(() => {
     if (!closingYearFilter || !closingMonthFilter) {

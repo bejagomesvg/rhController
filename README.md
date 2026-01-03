@@ -41,7 +41,7 @@ Este projeto tem como objetivo alinhar as práticas de gestão de pessoas às es
 2. **Evolução**  
     - `Tela Login`
     - `Modulo Segurança`
-    - `Modulo Carga de Tabela`
-    - `Modulo Operações`
-    - `Modulo Folha de Pagamento (Folha Mensal, Configuração)`
+    - `Modulo Carga de Tabela (Cadastro, Folha de Pgto e Horas Extras)`
+    - `Modulo Operações (Horas Extras e Produção)`
+    - `Modulo Folha de Pagamento (Folha Mensal, Custos, Afastamentos e Configuração)`
 
