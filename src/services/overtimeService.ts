@@ -104,13 +104,14 @@ export const fetchOvertimeSummary = async (
     const monthSafe = month ? String(month).padStart(2, '0') : null
     const daySafe = day ? String(day).padStart(2, '0') : null
     if (daySafe && monthSafe) {
-      url.searchParams.append('date_', `eq.${yearSafe}-${monthSafe}-${daySafe}`)
+      // Busca do dia 1 até o dia selecionado (inclusive) para permitir soma cumulativa
+      url.searchParams.append('date_', `gte.${yearSafe}-${monthSafe}-01`)
+      url.searchParams.append('date_', `lte.${yearSafe}-${monthSafe}-${daySafe}`)
     } else if (monthSafe) {
       const lastDay = new Date(Number(yearSafe), Number(monthSafe), 0).getDate()
       url.searchParams.append('date_', `gte.${yearSafe}-${monthSafe}-01`)
       url.searchParams.append('date_', `lte.${yearSafe}-${monthSafe}-${String(lastDay).padStart(2, '0')}`)
     } else if (year || daySafe) {
-      // day sem mês não faz sentido; se vier daySafe mas não month, ignora e usa o ano inteiro
       url.searchParams.append('date_', `gte.${yearSafe}-01-01`)
       url.searchParams.append('date_', `lte.${yearSafe}-12-31`)
     }

@@ -199,10 +199,15 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       return reg.includes(term) || name.includes(term)
     })
   }, [filterText, rows])
-  const totalRows = filteredRows.length
+  const visibleRows = useMemo(() => {
+    if (!filterDay) return filteredRows
+    const day = filterDay.padStart(2, '0')
+    return filteredRows.filter((r) => r.date_?.split('-')[2] === day)
+  }, [filteredRows, filterDay])
+  const totalRows = visibleRows.length
 
   const sortedRows = useMemo(() => {
-    const arr = [...filteredRows]
+    const arr = [...visibleRows]
     const { key, direction } = sort
     const dir = direction === 'asc' ? 1 : -1
     arr.sort((a, b) => {
@@ -256,14 +261,21 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
     return arr
   }, [filteredRows, sort])
 
-  const total303 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs303), 0)
-  const total304 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs304), 0)
-  const total505 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs505), 0)
-  const total506 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs506), 0)
-  const total511 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs511), 0)
-  const total512 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs512), 0)
-  // Hrs 60%: (505 + 506) - (511 + 512)  (ignora negativos na soma total)
-  const totalHrs60 = filteredRows.reduce((acc, r) => {
+  // Totais base para colunas individuais: usam apenas linhas visíveis (após filtro de dia, se houver)
+  const total303 = visibleRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs303), 0)
+  const total304 = visibleRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs304), 0)
+  const total505 = visibleRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs505), 0)
+  const total506 = visibleRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs506), 0)
+  const total511 = visibleRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs511), 0)
+  const total512 = visibleRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs512), 0)
+  const hasNameFilter = filterText.trim() !== ''
+
+  // Para Hr 60% / Hr 100%: se um dia específico foi selecionado, usamos todas as linhas carregadas (cumulativo do dia 1 até o dia escolhido).
+  // Caso contrário, usamos apenas as linhas visíveis.
+  const rowsForTotals = filterDay ? filteredRows : visibleRows
+
+  // Hrs 60%: (505 + 506) - (511 + 512) — total ignora valores negativos
+  const totalHrs60 = rowsForTotals.reduce((acc, r) => {
     const m505 = parseIntervalMinutes(r.hrs505)
     const m506 = parseIntervalMinutes(r.hrs506)
     const m511 = parseIntervalMinutes(r.hrs511)
@@ -272,7 +284,21 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
     return acc + (val > 0 ? val : 0)
   }, 0)
   // Hrs 100%: (303 + 304)
-  const totalHrs100 = filteredRows.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs303) + parseIntervalMinutes(r.hrs304), 0)
+  const totalHrs100 = rowsForTotals.reduce((acc, r) => acc + parseIntervalMinutes(r.hrs303) + parseIntervalMinutes(r.hrs304), 0)
+
+  const cumulativeByRegistration = useMemo(() => {
+    if (!filterDay) return null
+    const acc = new Map<string, { hrs60: number; hrs100: number }>()
+    filteredRows.forEach((r) => {
+      const reg = r.registration ? String(r.registration) : ''
+      if (!reg) return
+      const val60 = parseIntervalMinutes(r.hrs505) + parseIntervalMinutes(r.hrs506) - parseIntervalMinutes(r.hrs511) - parseIntervalMinutes(r.hrs512)
+      const val100 = parseIntervalMinutes(r.hrs303) + parseIntervalMinutes(r.hrs304)
+      const prev = acc.get(reg) || { hrs60: 0, hrs100: 0 }
+      acc.set(reg, { hrs60: prev.hrs60 + val60, hrs100: prev.hrs100 + val100 })
+    })
+    return acc
+  }, [filterDay, filteredRows])
 
   const companyHeaderLabel = useMemo(() => {
     if (filterCompany) return formatCompanyLabel(filterCompany)
@@ -300,8 +326,12 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       )
     }
     return sortedRows.map((row) => {
-      const hrs60 = parseIntervalMinutes(row.hrs505) + parseIntervalMinutes(row.hrs506) - parseIntervalMinutes(row.hrs511) - parseIntervalMinutes(row.hrs512)
-      const hrs100 = parseIntervalMinutes(row.hrs303) + parseIntervalMinutes(row.hrs304)
+      const hrs60Raw = parseIntervalMinutes(row.hrs505) + parseIntervalMinutes(row.hrs506) - parseIntervalMinutes(row.hrs511) - parseIntervalMinutes(row.hrs512)
+      const hrs100Raw = parseIntervalMinutes(row.hrs303) + parseIntervalMinutes(row.hrs304)
+      const regKey = row.registration ? String(row.registration) : ''
+      const cumulative = filterDay && cumulativeByRegistration ? cumulativeByRegistration.get(regKey) : null
+      const hrs60 = cumulative ? cumulative.hrs60 : hrs60Raw
+      const hrs100 = cumulative ? cumulative.hrs100 : hrs100Raw
       return (
         <tr key={`${row.company}-${row.registration}-${row.date_}`} className="odd:bg-white/5">
           <td className="px-1 py-2 text-center">{formatDateDayMonth(row.date_)}</td>
@@ -314,7 +344,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
           <td className="px-1 py-2 text-center">{formatInterval(row.hrs506)}</td>
           <td className="px-1 py-2 text-center">{formatInterval(row.hrs511)}</td>
           <td className="px-1 py-2 text-center">{formatInterval(row.hrs512)}</td>
-          <td className={`px-1 py-2 text-blue-500 text-xs text-center ${hrs60 <= 0 ? 'text-white/30' : ''}`}>{hrs60 !== 0 ? formatMinutes(hrs60) : '-'}</td>
+          <td className={`px-1 py-2 text-orange-500 text-xs text-center ${hrs60 <= 0 ? 'text-white/30' : ''}`}>{hrs60 !== 0 ? formatMinutes(hrs60) : '-'}</td>
           <td className={`px-1 py-2 text-rose-500 text-xs text-center ${hrs100 <= 0 ? 'text-white/30' : ''}`}>{hrs100 !== 0 ? formatMinutes(hrs100) : '-'}</td>
         </tr>
       )
@@ -523,12 +553,12 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                     </button>
                   </th>
                   <th className="px-1 py-2 text-center">
-                    <button type="button" className="w-full text-center flex items-center justify-center" onClick={() => handleSort('hrs60')}>
+                    <button type="button" className="w-full text-orange-500 text-center flex items-center justify-center" onClick={() => handleSort('hrs60')}>
                       Hr 60% {renderSortIcon('hrs60')}
                     </button>
                   </th>
                   <th className="px-1 py-2 text-center">
-                    <button type="button" className="w-full text-center flex items-center justify-center" onClick={() => handleSort('hrs100')}>
+                    <button type="button" className="w-full text-rose-500 text-center flex items-center justify-center" onClick={() => handleSort('hrs100')}>
                       Hr 100% {renderSortIcon('hrs100')}
                     </button>
                   </th>
@@ -565,8 +595,8 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                   <td className="px-1 py-2 text-center text-emerald-200 font-semibold">{formatMinutes(total506)}</td>
                   <td className="px-1 py-2 text-center text-emerald-200 font-semibold">{formatMinutes(total511)}</td>
                   <td className="px-1 py-2 text-center text-emerald-200 font-semibold">{formatMinutes(total512)}</td>
-                  <td className="px-1 py-2 text-center text-emerald-200 font-semibold">{formatMinutes(totalHrs60)}</td>
-                  <td className="px-1 py-2 text-center text-emerald-200 font-semibold">{formatMinutes(totalHrs100)}</td>
+                  <td className="px-1 py-2 text-center text-orange-500 font-semibold">{formatMinutes(totalHrs60)}</td>
+                  <td className="px-1 py-2 text-center text-rose-500 font-semibold">{formatMinutes(totalHrs100)}</td>
                 </tr>
               </tbody>
             </table>
