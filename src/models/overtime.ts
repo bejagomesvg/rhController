@@ -45,6 +45,7 @@ export interface OvertimeSummaryRow {
   registration: number
   name: string
   sector: string | null
+  salary?: number | null
   hrs303: string | null
   hrs304: string | null
   hrs505: string | null

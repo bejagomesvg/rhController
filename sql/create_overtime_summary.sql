@@ -10,6 +10,7 @@ SELECT
   o.registration::numeric AS registration,
   COALESCE(NULLIF(o.name, ''), e.name) AS name,
   e.sector AS sector,
+  e.salary AS salary,
   NULLIF(btrim(o.hrs303::text), '')::interval AS hrs303,
   NULLIF(btrim(o.hrs304::text), '')::interval AS hrs304,
   NULLIF(btrim(o.hrs505::text), '')::interval AS hrs505,

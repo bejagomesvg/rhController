@@ -8,6 +8,7 @@ import { abbreviateSector } from '../../utils/abbreviateSector'
 import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { createRotatedLabelRenderer } from '../../components/RotatedValueLabel'
+import SectorTick from '../../components/SectorTick'
 
 const BASE_MONTHLY_HOURS = 220
 const MAX_OVERTIME_ROWS = 20000
@@ -230,17 +231,6 @@ const makeBarTooltipValues = () => ({ active, payload, label }: TooltipContentPr
 
 const barTooltipHours = makeBarTooltipHours()
 const barTooltipValues = makeBarTooltipValues()
-
-const SectorTick = ({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) => {
-  if (x === undefined || y === undefined || !payload) return null
-  return (
-    <g transform={`translate(${x},${y}) rotate(-90)`}>
-      <text textAnchor="end" dominantBaseline="central" fill="#9aa4b3ff" fontSize={10} fontWeight={600}>
-        {payload.value}
-      </text>
-    </g>
-  )
-}
 
 const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supabaseKey, supabaseUrl }) => {
   const currentYear = String(new Date().getFullYear())

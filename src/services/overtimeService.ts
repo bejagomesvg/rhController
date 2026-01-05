@@ -94,7 +94,7 @@ export const fetchOvertimeSummary = async (
     const url = new URL(`${supabaseUrl}/rest/v1/overtime_summary`)
     url.searchParams.set(
       'select',
-      'company,date_,registration,name,sector,hrs303,hrs304,hrs505,hrs506,hrs511,hrs512'
+      'company,date_,registration,name,sector,salary,hrs303,hrs304,hrs505,hrs506,hrs511,hrs512'
     )
     url.searchParams.set('order', 'date_.desc,name.asc')
 
