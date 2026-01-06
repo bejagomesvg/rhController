@@ -63,6 +63,7 @@ type OvertimeRow = {
   hrs506Minutes: number
   hrs511Minutes: number
   hrs512Minutes: number
+  isCumulativeOnly?: boolean
 }
 
 type OvertimeSortKey =
@@ -254,8 +255,8 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sort, setSort] = useState<{ key: OvertimeSortKey; direction: 'asc' | 'desc' }>({
-    key: 'date',
-    direction: 'desc',
+    key: 'name',
+    direction: 'asc',
   })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingValues, setEditingValues] = useState<{
@@ -993,10 +994,9 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
         setAvailableMonths(Array.from(monthsSet).sort((a, b) => Number(a) - Number(b)))
         setAvailableDays(Array.from(daysSet).sort((a, b) => Number(a) - Number(b)))
 
-        const filteredRows = mappedRows.filter((row) => {
+        const matchesFilters = (row: OvertimeRow, opts: { allowDayRange?: boolean } = {}) => {
           const needle = filterText.trim()
           const numericNeedle = /^\d+$/.test(needle)
-          // If user searched by numeric registration, ignore other filters (company/sector/day/month/year)
           const matchCompany = numericNeedle ? true : filterCompany ? String(row.companyValue) === filterCompany : true
           const matchSector = numericNeedle ? true : filterSector ? row.sectorOriginal === filterSector : true
           const hasDate = row.dateIso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
@@ -1005,9 +1005,61 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
           const dayVal = hasDate ? hasDate[3] : null
           const matchYear = numericNeedle ? true : filterYear ? yearVal === filterYear : true
           const matchMonth = numericNeedle ? true : filterMonth ? monthVal === filterMonth : true
-          const matchDay = numericNeedle ? true : filterDay ? dayVal === filterDay : true
+          const matchDay = (() => {
+            if (numericNeedle) return true
+            if (!filterDay) return true
+            if (!dayVal) return false
+            if (opts.allowDayRange) return Number(dayVal) <= Number(filterDay)
+            return dayVal === filterDay
+          })()
           return matchCompany && matchSector && matchYear && matchMonth && matchDay
-        })
+        }
+
+        const filteredRows = mappedRows.filter((row) => matchesFilters(row))
+
+        // Cumulativo 1..dia para Hr 60% / Hr 100% por matrícula (exibidos na tabela) quando há filtro de dia
+        const cumulativeByRegistration = new Map<string, { hours60Minutes: number; hours100Minutes: number }>()
+        const rowByRegLatestUpToDay = new Map<string, OvertimeRow>()
+        if (filterDay) {
+          const cumulativeRows = mappedRows.filter((row) => matchesFilters(row, { allowDayRange: true }))
+          cumulativeRows.forEach((row) => {
+            const reg = String(row.registration)
+            const plus60 = row.plus60Minutes ?? 0
+            const minus60 = row.minus60Minutes ?? 0
+            const plus100 = row.plus100Minutes ?? 0
+            const prev = cumulativeByRegistration.get(reg) ?? { hours60Minutes: 0, hours100Minutes: 0 }
+            cumulativeByRegistration.set(reg, {
+              hours60Minutes: prev.hours60Minutes + (plus60 - minus60),
+              hours100Minutes: prev.hours100Minutes + plus100,
+            })
+            const existing = rowByRegLatestUpToDay.get(reg)
+            if (!existing || (row.dateIso && existing.dateIso && row.dateIso > existing.dateIso)) {
+              rowByRegLatestUpToDay.set(reg, row)
+            }
+          })
+        }
+
+        const rowByRegForDay = new Map<string, OvertimeRow>()
+        const filteredRowsWithCumulative = filterDay
+          ? filteredRows.map((row) => {
+              const reg = String(row.registration)
+              const existing = rowByRegForDay.get(reg)
+              if (!existing || (row.dateIso && existing.dateIso && row.dateIso > existing.dateIso)) {
+                rowByRegForDay.set(reg, row)
+              }
+              const cum = cumulativeByRegistration.get(reg)
+              if (!cum) return row
+              const hours60Minutes = Math.max(cum.hours60Minutes, 0)
+              const hours100Minutes = Math.max(cum.hours100Minutes, 0)
+              return {
+                ...row,
+                hours60: formatMinutes(hours60Minutes),
+                hours100: formatMinutes(hours100Minutes),
+                hours60Minutes,
+                hours100Minutes,
+              }
+            })
+          : filteredRows
 
         // Preserve the ungrouped, daily rows so totals can always be computed from
         // the actual daily entries even when `rows` is later grouped by registration.
@@ -1015,17 +1067,68 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
           const needleDbg = filterText.trim()
           if (/^\d+$/.test(needleDbg)) {
             const rowsInMapped = mappedRows.filter((m) => String(m.registration) === needleDbg)
-            const rowsInFiltered = filteredRows.filter((f) => String(f.registration) === needleDbg)
+            const rowsInFiltered = filteredRowsWithCumulative.filter((f) => String(f.registration) === needleDbg)
             // eslint-disable-next-line no-console
             if (showDbg()) console.debug('[OVERTIME-DBG] compare mapped vs filtered for reg=', needleDbg, 'mappedCount=', rowsInMapped.length, 'filteredCount=', rowsInFiltered.length, 'mappedIds=', rowsInMapped.map((r) => ({ id: r.id, date: r.dateIso })), 'filteredIds=', rowsInFiltered.map((r) => ({ id: r.id, date: r.dateIso })))
           }
         } catch (e) {
           // ignore
         }
-        setRawRows(filteredRows)
-
         const finalRows = filterDay || filterText
-          ? filteredRows
+          ? (() => {
+              if (!filterDay) return filteredRowsWithCumulative
+              const existingRegs = new Set(filteredRowsWithCumulative.map((r) => String(r.registration)))
+              const month = filterMonth || ''
+              const year = filterYear || ''
+              const dayIso = filterDay ? `${year}-${month}-${filterDay.padStart(2, '0')}` : ''
+              const dayLabel = '-'
+              const extraRows: OvertimeRow[] = []
+              cumulativeByRegistration.forEach((totals, reg) => {
+                if (existingRegs.has(reg)) return
+                const base = rowByRegLatestUpToDay.get(reg) || rowByRegForDay.get(reg)
+                const hours60Minutes = Math.max(totals.hours60Minutes, 0)
+                const hours100Minutes = Math.max(totals.hours100Minutes, 0)
+                extraRows.push({
+                  ...(base || ({} as OvertimeRow)),
+                  id: base?.id ?? `${reg}-${dayIso}`,
+                  registration: base?.registration ?? reg,
+                  registrationValue: Number(reg) || 0,
+                  company: base?.company ?? '-',
+                  companyValue: base?.companyValue ?? 0,
+                  companyLabel: base?.companyLabel ?? '-',
+                  name: base?.name ?? '-',
+                  sector: base?.sector ?? '-',
+                  sectorOriginal: base?.sectorOriginal ?? null,
+                  salary: base?.salary ?? (salaryByRegistration[reg] ?? 0),
+                  dateIso: dayIso,
+                  date: dayLabel,
+                  dateShort: dayLabel,
+                  hrs303: '',
+                  hrs304: '',
+                  hrs505: '',
+                  hrs506: '',
+                  hrs511: '',
+                  hrs512: '',
+                  plus60: '',
+                  minus60: '',
+                  plus100: '',
+                  hours60: formatMinutes(hours60Minutes),
+                  hours100: formatMinutes(hours100Minutes),
+                  plus60Minutes: 0,
+                  minus60Minutes: 0,
+                  plus100Minutes: 0,
+                  hours60Minutes,
+                  hours100Minutes,
+                  hrs303Minutes: 0,
+                  hrs304Minutes: 0,
+                  hrs505Minutes: 0,
+                  hrs506Minutes: 0,
+                  hrs511Minutes: 0,
+                  hrs512Minutes: 0,
+                })
+              })
+              return [...filteredRowsWithCumulative, ...extraRows]
+            })()
           : (() => {
             const grouped = new Map<
               string,
@@ -1142,7 +1245,9 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
             }
 
             rowsToGroup.forEach((row) => {
-              const current = grouped.get(row.registration) ?? {
+              const monthKey = row.dateIso ? row.dateIso.slice(0, 7) : 'no-month'
+              const groupKey = `${row.registration}-${monthKey}`
+              const current = grouped.get(groupKey) ?? {
                 registration: row.registration,
                 name: row.name,
                 company: row.company,
@@ -1164,14 +1269,12 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
                 hrs512Minutes: 0,
                 minDate: row.dateIso || null,
                 maxDate: row.dateIso || null,
+                monthKey,
               }
               if (row.salary && row.salary > 0) current.salary = row.salary
               current.plus60Minutes += row.plus60Minutes
               current.minus60Minutes += row.minus60Minutes
               current.plus100Minutes += row.plus100Minutes
-              // não acumular `hours60Minutes`/`hours100Minutes` aqui — iremos
-              // calcular o saldo (net) a partir de `plus60Minutes` e `minus60Minutes`
-              // quando formos mapear para a linha agrupada.
               current.hrs303Minutes += row.hrs303Minutes
               current.hrs304Minutes += row.hrs304Minutes
               current.hrs505Minutes += row.hrs505Minutes
@@ -1184,7 +1287,7 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
               }
               if (row.name) current.name = row.name
               if (row.sector) current.sector = row.sector
-              grouped.set(row.registration, current)
+              grouped.set(groupKey, current)
             })
 
             // Diagnostic logging for a specific registration to help debug
@@ -1228,7 +1331,7 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
               // ignore
             }
 
-            return Array.from(grouped.values()).map((g) => {
+            return Array.from(grouped.values()).map((g: any) => {
               const rangeLabel = formatDayRange(g.minDate, g.maxDate)
               // Diagnostic: log grouped totals for debug registrations
               try {
@@ -1250,11 +1353,12 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
               } catch (e) {
                 // ignore
               }
+              const monthLabel = g.monthKey && g.monthKey.includes('-') ? `${g.monthKey.split('-')[1]}/${g.monthKey.split('-')[0]}` : rangeLabel
               return {
-                id: g.registration,
+                id: `${g.registration}-${g.monthKey || ''}`,
                 dateIso: g.maxDate ?? '',
-                date: rangeLabel,
-                dateShort: rangeLabel,
+                date: monthLabel,
+                dateShort: monthLabel,
                 company: g.company,
                 companyValue: g.companyValue,
                 companyLabel: g.companyLabel,
@@ -1291,7 +1395,54 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
             })
           })()
 
+        let rawRowsForTotals: OvertimeRow[] = finalRows
+        if (filterDay) {
+          const cumulativeRows = mappedRows.filter((row) => matchesFilters(row, { allowDayRange: true }))
+          const rowByReg = new Map<string, OvertimeRow>()
+          cumulativeRows.forEach((row) => {
+            const reg = String(row.registration)
+            const existing = rowByReg.get(reg)
+            if (!existing || (row.dateIso && existing.dateIso && row.dateIso > existing.dateIso)) {
+              rowByReg.set(reg, row)
+            }
+          })
+          rawRowsForTotals = Array.from(cumulativeByRegistration.entries()).map(([reg, totals]) => {
+            const base = rowByReg.get(reg)
+            const hours60Minutes = Math.max(totals.hours60Minutes, 0)
+            const hours100Minutes = Math.max(totals.hours100Minutes, 0)
+            return {
+              ...(base || ({} as OvertimeRow)),
+              registration: base?.registration ?? reg,
+              registrationValue: Number(reg) || 0,
+              hours60Minutes,
+              hours100Minutes,
+              hours60: formatMinutes(hours60Minutes),
+              hours100: formatMinutes(hours100Minutes),
+              plus60Minutes: hours60Minutes > 0 ? hours60Minutes : 0,
+              minus60Minutes: hours60Minutes < 0 ? Math.abs(hours60Minutes) : 0,
+              plus100Minutes: hours100Minutes,
+              salary: base?.salary ?? (salaryByRegistration[reg] ?? 0),
+              company: base?.company ?? '-',
+              companyValue: base?.companyValue ?? 0,
+              companyLabel: base?.companyLabel ?? '-',
+              sector: base?.sector ?? '-',
+              sectorOriginal: base?.sectorOriginal ?? null,
+              dateIso: base?.dateIso ?? '',
+              date: base?.date ?? '',
+              dateShort: base?.dateShort ?? '',
+              hrs303Minutes: base?.hrs303Minutes ?? 0,
+              hrs304Minutes: base?.hrs304Minutes ?? 0,
+              hrs505Minutes: base?.hrs505Minutes ?? 0,
+              hrs506Minutes: base?.hrs506Minutes ?? 0,
+              hrs511Minutes: base?.hrs511Minutes ?? 0,
+              hrs512Minutes: base?.hrs512Minutes ?? 0,
+              isCumulativeOnly: !base,
+            }
+          })
+        }
+
         setRows(finalRows)
+        setRawRows(rawRowsForTotals)
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Erro ao buscar horas extras'
         setError(msg)
@@ -1724,7 +1875,12 @@ const OperationsOvertimePanel: React.FC<OperationsOvertimePanelProps> = ({ supab
             </thead>
             <tbody>
               {sortedRows.map((row) => (
-                <tr key={row.id} className="border-t border-white/5 hover:bg-emerald-500/5 transition-colors">
+                <tr
+                  key={row.id}
+                  className={`border-t border-white/5 hover:bg-emerald-500/5 transition-colors ${
+                    row.isCumulativeOnly ? 'opacity-50' : ''
+                  }`}
+                >
                   <td className="py-1 whitespace-nowrap text-xs text-center">{row.dateShort}</td>
                   <td className="py-1 text-center text-xs">{row.company}</td>
                   <td className="py-1 text-center text-xs">{row.registration}</td>

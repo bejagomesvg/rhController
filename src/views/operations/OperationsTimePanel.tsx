@@ -23,25 +23,6 @@ const formatDateDayMonth = (value?: string | null) => {
   return value
 }
 
-const formatInterval = (value?: string | null) => {
-  if (!value) return ''
-  const match = value.match(/^(-?\d+):(\d{2})(?::(\d{2}))?/)
-  if (match) {
-    const [, hours, minutes] = match
-    return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`
-  }
-  const numeric = Number(value)
-  if (!Number.isNaN(numeric)) {
-    const totalMinutes = Math.round(numeric * 60)
-    const sign = totalMinutes < 0 ? '-' : ''
-    const abs = Math.abs(totalMinutes)
-    const h = Math.floor(abs / 60)
-    const m = abs % 60
-    return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-  }
-  return value
-}
-
 const formatCompanyLabel = (value: number | string | null) => {
   if (value === null || value === undefined || value === '') return '-'
   const num = Number(value)
@@ -71,8 +52,8 @@ const formatMinutes = (value: number) => {
 const formatDateRangeForRow = (start?: string, end?: string) => {
   if (!start && !end) return '-'
   const parse = (v: string) => v.split('-')
-  const [sy, sm, sd] = start ? parse(start) : ['', '', '']
-  const [ey, em, ed] = end ? parse(end) : ['', '', '']
+  const [, sm, sd] = start ? parse(start) : ['', '', '']
+  const [, em, ed] = end ? parse(end) : ['', '', '']
   if (start === end && sd && sm) return `${sd}/${sm}`
   const dayStart = sd || '--'
   const dayEnd = ed || dayStart || '--'
@@ -82,7 +63,8 @@ const formatDateRangeForRow = (start?: string, end?: string) => {
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(value)
 
-type DisplayRow = OvertimeSummaryRow & Partial<AggregatedRow> & { isAggregated?: boolean }
+type DisplayRow = OvertimeSummaryRow &
+  Partial<AggregatedRow> & { isAggregated?: boolean; isCumulativeOnly?: boolean; hours60Minutes?: number; hours100Minutes?: number }
 
 type AggregatedRow = {
   key: string
@@ -93,7 +75,7 @@ type AggregatedRow = {
   registration: number
   name: string
   sector: string | null
-  salary: number
+  salary: number | null
   mins303: number
   mins304: number
   mins505: number
@@ -105,7 +87,7 @@ type AggregatedRow = {
 const aggregateRows = (rows: OvertimeSummaryRow[], grouping: 'day' | 'month'): AggregatedRow[] => {
   const map = new Map<string, AggregatedRow>()
   rows.forEach((r) => {
-    const [year, month, day] = (r.date_ || '').split('-')
+    const [year, month] = (r.date_ || '').split('-')
     const monthKey = year && month ? `${year}-${month}` : 'no-month'
     const key =
       grouping === 'month'
@@ -215,8 +197,8 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const resolvedSupabaseUrl = supabaseUrl ?? (import.meta as any).env?.VITE_SUPABASE_URL
   const resolvedSupabaseKey = supabaseKey ?? (import.meta as any).env?.VITE_SUPABASE_KEY
   const [sort, setSort] = useState<{ key: 'date' | 'registration' | 'name' | 'sector' | 'hrs303' | 'hrs304' | 'hrs505' | 'hrs506' | 'hrs511' | 'hrs512' | 'hrs60' | 'hrs100'; direction: 'asc' | 'desc' }>({
-    key: 'date',
-    direction: 'desc',
+    key: 'name',
+    direction: 'asc',
   })
   const [filterCompany, setFilterCompany] = useState<string>('')
   const [filterSector, setFilterSector] = useState<string>('')
@@ -252,11 +234,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       try {
         const result = await fetchOvertimeSummary(
           {
-            company: filterCompany || undefined,
-            sector: filterSector || undefined,
-            year: filterYear || undefined,
-            month: filterMonth || undefined,
-            day: filterDay || undefined,
+            // carregamos tudo e filtramos no cliente para manter as opções sempre populadas
           },
           resolvedSupabaseUrl,
           resolvedSupabaseKey
@@ -281,7 +259,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
     return () => {
       active = false
     }
-  }, [filterCompany, filterSector, filterYear, filterMonth, filterDay, resolvedSupabaseKey, resolvedSupabaseUrl])
+  }, [resolvedSupabaseKey, resolvedSupabaseUrl])
 
   const companyOptions = useMemo(() => {
     const values = new Set<string>()
@@ -387,13 +365,21 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
 
   const filteredRows = useMemo(() => {
     const term = filterText.trim().toLowerCase()
-    if (!term) return rows
+    const sector = filterSector.trim()
+    const company = filterCompany.trim()
+    const year = filterYear.trim()
+    const month = filterMonth.trim()
     return rows.filter((r) => {
+      if (company && String(r.company ?? '') !== company) return false
+      if (year && !r.date_?.startsWith(`${year}-`)) return false
+      if (month && !r.date_?.startsWith(`${year || r.date_?.split('-')[0]}-${month}`)) return false
+      if (sector && r.sector !== sector) return false
+      if (!term) return true
       const reg = String(r.registration ?? '').toLowerCase()
       const name = String(r.name ?? '').toLowerCase()
       return reg.includes(term) || name.includes(term)
     })
-  }, [filterText, rows])
+  }, [filterText, rows, filterSector, filterCompany, filterYear, filterMonth])
   const visibleRows = useMemo(() => {
     if (!filterDay) return filteredRows
     const dayNumber = Number(filterDay)
@@ -404,28 +390,65 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       return d === dayNumber
     })
   }, [filteredRows, filterDay])
-
   // Conjunto para totais/agrupamentos de Hr 60% e Hr 100%
   // - Sem dia: usa todos filtrados (agrupamento mensal)
   // - Com dia: usa 1..dia selecionado apenas para as matrículas visíveis no dia (cumulativo por matrícula)
   const rowsForTotalsSource = useMemo(() => {
     if (!filterDay) return filteredRows
-    const regsInDay = new Set<string>()
-    visibleRows.forEach((r) => {
-      if (r.registration !== null && r.registration !== undefined) {
-        regsInDay.add(String(r.registration))
-      }
-    })
     const dayNumber = Number(filterDay)
     return filteredRows.filter((r) => {
       const parts = r.date_?.split('-') || []
       const d = parts.length === 3 ? Number(parts[2]) : NaN
       if (Number.isNaN(d)) return false
-      const reg = r.registration !== null && r.registration !== undefined ? String(r.registration) : ''
-      if (reg && regsInDay.size > 0 && !regsInDay.has(reg)) return false
       return d <= dayNumber
     })
-  }, [filteredRows, filterDay, visibleRows])
+  }, [filteredRows, filterDay])
+
+  const rowsForTotals = rowsForTotalsSource
+  const allowNegative60 = filterText.trim().length > 0
+  // Para Hr 60%/100% sempre agregamos por mês (por matrícula/empresa) e somamos apenas as datas <= dia selecionado.
+  const aggregationModeTotals: 'month' = 'month'
+  const aggregatedRowsForTotals = useMemo(() => aggregateRows(rowsForTotals, aggregationModeTotals), [rowsForTotals, aggregationModeTotals])
+
+  const cumulativeByRegistration = useMemo(() => {
+    if (!filterDay) return null
+    const acc = new Map<string, { hrs60: number; hrs100: number }>()
+    aggregatedRowsForTotals.forEach((r) => {
+      const reg = r.registration ? String(r.registration) : ''
+      if (!reg) return
+      const val60 = Math.max(r.mins505 + r.mins506 - r.mins511 - r.mins512, 0)
+      const val100 = Math.max(r.mins303 + r.mins304, 0)
+      acc.set(reg, { hrs60: val60, hrs100: val100 })
+    })
+    return acc
+  }, [filterDay, aggregatedRowsForTotals])
+
+  // Hrs 60%: (505 + 506) - (511 + 512) — total ignora valores negativos
+  const totalHrs60 = aggregatedRowsForTotals.reduce((acc, r) => {
+    const val = r.mins505 + r.mins506 - r.mins511 - r.mins512
+    return acc + (allowNegative60 ? val : Math.max(val, 0))
+  }, 0)
+  // Hrs 100%: (303 + 304) — agora sobre linhas únicas (similar ao UNIQUE do Excel)
+  const totalHrs100 = aggregatedRowsForTotals.reduce((acc, r) => acc + r.mins303 + r.mins304, 0)
+
+  const { totalValue60, totalValue100 } = useMemo(() => {
+    let value60 = 0
+    let value100 = 0
+    aggregatedRowsForTotals.forEach((r) => {
+      const salary = Number(r.salary ?? 0)
+      if (!salary) return
+      const hourly = Math.round(((salary + 303.60) / 220) * 100) / 100 // hora-base arredondada em 2 casas - ADICIONEI 303.60 NO SALARY POIS TODOS FUNCIONARIOS TEM ESSE VALOR ADICIONADO
+      const mins60Raw = r.mins505 + r.mins506 - r.mins511 - r.mins512
+      const mins60 = allowNegative60 ? mins60Raw : Math.max(mins60Raw, 0)
+      const mins100 = r.mins303 + r.mins304
+      value60 += Math.round(((mins60 / 60) * hourly * 1.6) * 100) / 100
+      value100 += Math.round(((mins100 / 60) * hourly * 2) * 100) / 100
+    })
+    return { totalValue60: value60, totalValue100: value100 }
+  }, [aggregatedRowsForTotals, allowNegative60])
+
+  const displayTotalValue60 = hasTextFilter && totalHrs60 <= 0 ? '-' : formatCurrency(totalValue60)
+  const displayTotalValue100 = hasTextFilter && totalHrs100 <= 0 ? '-' : formatCurrency(totalValue100)
 
   const aggregationMode: 'month' = 'month'
   const aggregatedVisibleRows = useMemo(() => aggregateRows(visibleRows, aggregationMode), [visibleRows, aggregationMode])
@@ -457,7 +480,81 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       })),
     [aggregatedVisibleRows]
   )
-  const displayRows: DisplayRow[] = useMemo(() => (filterDay ? visibleRows : aggregatedVisibleDisplayRows), [filterDay, visibleRows, aggregatedVisibleDisplayRows])
+
+  const latestRowByRegUpToDay = useMemo(() => {
+    if (!filterDay) return null
+    const dayNumber = Number(filterDay)
+    const map = new Map<string, OvertimeSummaryRow>()
+    filteredRows.forEach((r) => {
+      const parts = r.date_?.split('-') || []
+      if (parts.length !== 3) return
+      const [year, month, day] = parts
+      if (filterYear && year !== filterYear) return
+      if (filterMonth && month !== filterMonth) return
+      const d = Number(day)
+      if (Number.isNaN(d) || d > dayNumber) return
+      const reg = r.registration !== null && r.registration !== undefined ? String(r.registration) : ''
+      if (!reg) return
+      const existing = map.get(reg)
+      if (!existing || (r.date_ && existing.date_ && r.date_ > existing.date_)) {
+        map.set(reg, r)
+      }
+    })
+    return map
+  }, [filterDay, filterMonth, filterYear, filteredRows])
+
+  const displayRows: DisplayRow[] = useMemo(() => {
+    // Com filtro de texto ativo (cadastro/nome), exibir sempre as linhas diárias (sem agrupamento extra).
+    const hasTextFilter = filterText.trim().length > 0
+    if (!filterDay && !hasTextFilter) return aggregatedVisibleDisplayRows
+    const baseRows = visibleRows.map((r) => ({
+      ...r,
+      salary: r.salary ?? null,
+      isAggregated: false,
+    }))
+    if (!filterDay || !cumulativeByRegistration || !latestRowByRegUpToDay) {
+      return baseRows
+    }
+    const extraRows: DisplayRow[] = []
+    const existingRegs = new Set(baseRows.map((r) => String(r.registration ?? '')))
+    cumulativeByRegistration.forEach((totals, reg) => {
+      if (existingRegs.has(reg)) return
+      const hours60Minutes = Math.max(totals.hrs60, 0)
+      const hours100Minutes = Math.max(totals.hrs100, 0)
+      if (hours60Minutes <= 0 && hours100Minutes <= 0) return
+      const base = latestRowByRegUpToDay.get(reg)
+      const company = base?.company ?? null
+      const sector = base?.sector ?? null
+      const name = base?.name ?? '-'
+      const salary = base?.salary ?? null
+      extraRows.push({
+        company: company ?? null,
+        date_: '-',
+        registration: Number(reg),
+        name,
+        sector: sector ?? '-',
+        salary: salary ?? null,
+        hrs303: '',
+        hrs304: '',
+        hrs505: '',
+        hrs506: '',
+        hrs511: '',
+        hrs512: '',
+        mins303: 0,
+        mins304: 0,
+        mins505: 0,
+        mins506: 0,
+        mins511: 0,
+        mins512: 0,
+        key: `extra-${reg}-${filterDay}`,
+        isAggregated: false,
+        isCumulativeOnly: true,
+        hours60Minutes,
+        hours100Minutes,
+      })
+    })
+    return [...baseRows, ...extraRows]
+  }, [filterDay, visibleRows, aggregatedVisibleDisplayRows, cumulativeByRegistration, latestRowByRegUpToDay, filterText])
 
   const getMinutesFromRow = (row: DisplayRow, field: '303' | '304' | '505' | '506' | '511' | '512') => {
     if (row.isAggregated) {
@@ -551,38 +648,8 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const total512 = displayRows.reduce((acc, r) => acc + getMinutesFromRow(r, '512'), 0)
 
   // Para Hr 60% / Hr 100%: usamos conjunto do dia selecionado (quando há dia); sem dia, usa todo o mês.
-  const rowsForTotals = rowsForTotalsSource
-  const allowNegative60 = filterText.trim().length > 0
-  // Para Hr 60%/100% sempre agregamos por mês (por matrícula/empresa) e somamos apenas as datas <= dia selecionado.
-  const aggregationModeTotals: 'month' = 'month'
-  const aggregatedRowsForTotals = useMemo(() => aggregateRows(rowsForTotals, aggregationModeTotals), [rowsForTotals, aggregationModeTotals])
-
-  // Hrs 60%: (505 + 506) - (511 + 512) — total ignora valores negativos
-  const totalHrs60 = aggregatedRowsForTotals.reduce((acc, r) => {
-    const val = r.mins505 + r.mins506 - r.mins511 - r.mins512
-    return acc + (allowNegative60 ? val : Math.max(val, 0))
-  }, 0)
-  // Hrs 100%: (303 + 304) — agora sobre linhas únicas (similar ao UNIQUE do Excel)
-  const totalHrs100 = aggregatedRowsForTotals.reduce((acc, r) => acc + r.mins303 + r.mins304, 0)
-
-  const { totalValue60, totalValue100 } = useMemo(() => {
-    let value60 = 0
-    let value100 = 0
-    aggregatedRowsForTotals.forEach((r) => {
-      const salary = Number(r.salary ?? 0)
-      if (!salary) return
-      const hourly = salary / 220 // suposição: salário mensal / 220 horas
-      const mins60Raw = r.mins505 + r.mins506 - r.mins511 - r.mins512
-      const mins60 = allowNegative60 ? mins60Raw : Math.max(mins60Raw, 0)
-      const mins100 = r.mins303 + r.mins304
-      value60 += (mins60 / 60) * hourly * 1.6
-      value100 += (mins100 / 60) * hourly * 2
-    })
-    return { totalValue60: value60, totalValue100: value100 }
-  }, [aggregatedRowsForTotals, allowNegative60])
-
   // Para gráficos usamos o mesmo conjunto dos totais (cumulativo 1..dia quando há dia).
-  const rowsForCharts = rowsForTotals
+  const rowsForCharts = hasTextFilter && totalHrs60 <= 0 && totalHrs100 <= 0 ? [] : rowsForTotals
   const aggregatedRowsForCharts = useMemo(() => aggregateRows(rowsForCharts, aggregationModeTotals), [rowsForCharts, aggregationModeTotals])
 
   const sectorChartData: SectorChartDatum[] = useMemo(() => {
@@ -658,6 +725,13 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
     [sectorChartData]
   )
 
+  const hasHours60Data = sectorChartHours60.length > 0
+  const hasHours100Data = sectorChartHours100.length > 0
+  const hasValue60Data = sectorChartValue60.length > 0
+  const hasValue100Data = sectorChartValue100.length > 0
+  const hasAnyHoursChart = hasHours60Data || hasHours100Data
+  const hasAnyValueChart = hasValue60Data || hasValue100Data
+
   const rotatedLabelHours60 = useMemo(
     () =>
       createRotatedLabelRenderer(
@@ -721,19 +795,6 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const barTooltipHours = useMemo(() => makeBarTooltipHours(), [])
   const barTooltipValues = useMemo(() => makeBarTooltipValues(), [])
 
-  const cumulativeByRegistration = useMemo(() => {
-    if (!filterDay) return null
-    const acc = new Map<string, { hrs60: number; hrs100: number }>()
-    aggregatedRowsForTotals.forEach((r) => {
-      const reg = r.registration ? String(r.registration) : ''
-      if (!reg) return
-      const val60 = r.mins505 + r.mins506 - r.mins511 - r.mins512
-      const val100 = r.mins303 + r.mins304
-      acc.set(reg, { hrs60: val60, hrs100: val100 })
-    })
-    return acc
-  }, [filterDay, aggregatedRowsForTotals])
-
   const companyHeaderLabel = useMemo(() => {
     if (filterCompany) return formatCompanyLabel(filterCompany)
     if (rows.length > 0) return formatCompanyLabel(rows[0].company ?? null)
@@ -776,10 +837,13 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
           }
           return formatDateRangeForRow(row.startDate, row.endDate)
         }
-        return formatDateDayMonth(row.date_)
+        return row.isCumulativeOnly ? '-' : formatDateDayMonth(row.date_)
       })()
       return (
-        <tr key={`${row.company}-${row.registration}-${row.date_}`} className="odd:bg-white/5">
+        <tr
+          key={`${row.company}-${row.registration}-${row.date_}-${(row as any).key ?? ''}`}
+          className={`odd:bg-white/5 ${row.isCumulativeOnly ? 'opacity-50' : ''}`}
+        >
           <td className="px-1 py-2 text-center">{displayDate}</td>
           <td className="px-1 py-2 text-center">{row.registration}</td>
           <td className="px-1 py-2 whitespace-nowrap overflow-hidden text-ellipsis">
@@ -944,11 +1008,11 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                 </div>
                 <div className="px-2 py-2 bg-white/5 text-center border border-white/10 rounded-md shadow-inner shadow-black/20 min-w-[110px]">
                   <div className="text-[11px] uppercase tracking-[0.15em] text-white/60">R$ 60%</div>
-                  <div className="text-orange-500">{formatCurrency(totalValue60)}</div>
+                  <div className="text-orange-500">{displayTotalValue60}</div>
                 </div>
                 <div className="px-2 py-2 bg-white/5 text-center border border-white/10 rounded-md shadow-inner shadow-black/20 min-w-[110px]">
                   <div className="text-[11px] uppercase tracking-[0.15em] text-white/60">R$ 100%</div>
-                  <div className="text-rose-500">{formatCurrency(totalValue100)}</div>
+                  <div className="text-rose-500">{displayTotalValue100}</div>
                 </div>
               </div>
             </div>
@@ -1134,213 +1198,169 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       </div>
 
       {/* GRAFICO HORAS POR SETOR */}
-      <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
-        <div className="flex items-center justify-between text-white/80 text-sm mb-3">
-          <div className="flex items-center gap-2">
-            <Clock10 className="w-5 h-5 text-emerald-300" />
-            Distribuição das Horas por Setor
+      {hasAnyHoursChart && (
+        <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
+          <div className="flex items-center justify-between text-white/80 text-sm mb-3">
+            <div className="flex items-center gap-2">
+              <Clock10 className="w-5 h-5 text-emerald-300" />
+              Distribuição das Horas por Setor
+            </div>
+            <div className="flex items-center gap-2 text-base">
+              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
+                60% Hrs: {formatMinutes(Math.round(sectorChartData.reduce((acc, s) => acc + s.hours60Hours * 60, 0)))}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
+                100% Hrs: {formatMinutes(Math.round(sectorChartData.reduce((acc, s) => acc + s.hours100Hours * 60, 0)))}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-base">
-            <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
-              60% Hrs: {formatMinutes(Math.round(sectorChartData.reduce((acc, s) => acc + s.hours60Hours * 60, 0)))}
-            </span>
-            <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
-              100% Hrs: {formatMinutes(Math.round(sectorChartData.reduce((acc, s) => acc + s.hours100Hours * 60, 0)))}
-            </span>
+          <div className="space-y-4">
+            {hasHours60Data && (
+              <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
+                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 60%</p>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sectorChartHours60} margin={{ top: 30, right: 15, left: 0, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
+                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 9 }} axisLine={{ stroke: '#475569' }} tickCount={10} />
+                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
+                    <Bar dataKey="hours60Hours" fill="#34d5ff" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                      {sectorChartHours60.map((item, idx) => (
+                        <Cell
+                          key={`cell-hours60-${idx}`}
+                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                          style={{
+                            transform: hoverHours60 === idx ? 'translateY(-6px)' : 'translateY(0)',
+                            transition: 'transform 50ms ease',
+                          }}
+                          onMouseEnter={() => setHoverHours60(idx)}
+                          onMouseLeave={() => setHoverHours60(null)}
+                        />
+                      ))}
+                      <LabelList dataKey="hours60Hours" position="top" content={rotatedLabelHours60 as any} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {hasHours100Data && (
+              <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
+                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 100%</p>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sectorChartHours100} margin={{ top: 12, right: 16, left: 8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={90} />
+                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 9 }} axisLine={{ stroke: '#475569' }} tickCount={10} />
+                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
+                    <Bar dataKey="hours100Hours" fill="#f43f5e" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                      {sectorChartHours100.map((item, idx) => (
+                        <Cell
+                          key={`cell-hours100-${idx}`}
+                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                          style={{
+                            transform: hoverHours100 === idx ? 'translateY(-6px)' : 'translateY(0)',
+                            transition: 'transform 150ms ease',
+                          }}
+                          onMouseEnter={() => setHoverHours100(idx)}
+                          onMouseLeave={() => setHoverHours100(null)}
+                        />
+                      ))}
+                      <LabelList dataKey="hours100Hours" position="top" formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))} fill="#e2e8f0" fontSize={11} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         </div>
-        {sectorChartHours60.length === 0 && sectorChartHours100.length === 0 ? (
-          <p className="text-sm text-white/60">Nenhum dado para exibir gráficos.</p>
-        ) : (
-          <div className="space-y-4">
-            <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
-              <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 60%</p>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sectorChartHours60} margin={{ top: 30, right: 15, left: 0, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                  <XAxis 
-                    dataKey="sector" 
-                    tick={<SectorTick />} 
-                    axisLine={{ stroke: '#475569' }} 
-                    interval={0} 
-                    height={100} 
-                  />
-                  <YAxis 
-                    tick={{ fill: '#cbd5e1', fontSize: 9 }} 
-                    axisLine={{ stroke: '#475569' }} 
-                    tickCount={10}
-                  />
-                  <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
-                  <Bar 
-                    dataKey="hours60Hours" 
-                    fill="#34d5ff" 
-                    radius={[3, 3, 0, 0]} 
-                    isAnimationActive={false}>
-                    {sectorChartHours60.map((item, idx) => (
-                      <Cell
-                        key={`cell-hours60-${idx}`}
-                        fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
-                        style={{
-                          transform: hoverHours60 === idx ? 'translateY(-6px)' : 'translateY(0)',
-                          transition: 'transform 50ms ease',
-                        }}
-                        onMouseEnter={() => setHoverHours60(idx)}
-                        onMouseLeave={() => setHoverHours60(null)}
-                      />
-                    ))}
-                    <LabelList dataKey="hours60Hours" position="top" content={rotatedLabelHours60 as any} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
-              <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 100%</p>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
-                  data={sectorChartHours100} 
-                  margin={{ top: 12, right: 16, left: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                  <XAxis 
-                    dataKey="sector" 
-                    tick={<SectorTick />} 
-                    axisLine={{ stroke: '#475569' }} 
-                    interval={0} 
-                    height={90}
-                  />
-                  <YAxis 
-                    tick={{ fill: '#cbd5e1', fontSize: 9 }} 
-                    axisLine={{ stroke: '#475569' }} 
-                    tickCount={10}
-                  />
-                  <Tooltip 
-                    cursor={{ fill: 'transparent' }} 
-                    content={barTooltipHours}
-                  />
-                  <Bar 
-                    dataKey="hours100Hours" 
-                    fill="#f43f5e" 
-                    radius={[3, 3, 0, 0]} 
-                    isAnimationActive={false}>
-                    {sectorChartHours100.map((item, idx) => (
-                      <Cell
-                        key={`cell-hours100-${idx}`}
-                        fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
-                        style={{
-                          transform: hoverHours100 === idx ? 'translateY(-6px)' : 'translateY(0)',
-                          transition: 'transform 150ms ease',
-                        }}
-                        onMouseEnter={() => setHoverHours100(idx)}
-                        onMouseLeave={() => setHoverHours100(null)}
-                      />
-                    ))}
-                    <LabelList
-                      dataKey="hours100Hours"
-                      position="top"
-                      formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))}
-                      fill="#e2e8f0"
-                      fontSize={11}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
-      {/* GRAFICO VALORES POR SETOR */}
-      <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
-        <div className="flex items-center justify-between text-white/80 text-sm mb-3">
-          <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-emerald-300" />
-            Distribuição dos Valores por Setor
+      {hasAnyValueChart && (
+        <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
+          <div className="flex items-center justify-between text-white/80 text-sm mb-3">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-emerald-300" />
+              Distribuição dos Valores por Setor
+            </div>
+            <div className="flex items-center gap-2 text-base">
+              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
+                60% R$: {displayTotalValue60}
+              </span>
+              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
+                100% R$: {displayTotalValue100}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-base">
-            <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
-              60% R$: {formatCurrency(totalValue60)}
-            </span>
-            <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
-              100% R$: {formatCurrency(totalValue100)}
-            </span>
+          <div className="space-y-4">
+            {hasValue60Data && (
+              <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
+                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Valores 60%</p>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sectorChartValue60} margin={{ top: 32, right: 16, left: 8, bottom: 36 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
+                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipValues} />
+                    <Bar dataKey="value60" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                      {sectorChartValue60.map((item, idx) => (
+                        <Cell
+                          key={`cell-val60-${idx}`}
+                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                          style={{
+                            transform: hoverValue60 === idx ? 'translateY(-6px)' : 'translateY(0)',
+                            transition: 'transform 150ms ease',
+                          }}
+                          onMouseEnter={() => setHoverValue60(idx)}
+                          onMouseLeave={() => setHoverValue60(null)}
+                        />
+                      ))}
+                      <LabelList dataKey="value60" content={rotatedLabelValue as any} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {hasValue100Data && (
+              <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
+                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Valores 100%</p>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sectorChartValue100} margin={{ top: 32, right: 16, left: 8, bottom: 36 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
+                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipValues} />
+                    <Bar dataKey="value100" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                      {sectorChartValue100.map((item, idx) => (
+                        <Cell
+                          key={`cell-val100-${idx}`}
+                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                          style={{
+                            transform: hoverValue100 === idx ? 'translateY(-6px)' : 'translateY(0)',
+                            transition: 'transform 150ms ease',
+                          }}
+                          onMouseEnter={() => setHoverValue100(idx)}
+                          onMouseLeave={() => setHoverValue100(null)}
+                        />
+                      ))}
+                      <LabelList dataKey="value100" position="top" formatter={(v: any) => formatCurrency(Number(v ?? 0))} fill="#e2e8f0" fontSize={10} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         </div>
-        {sectorChartValue60.length === 0 && sectorChartValue100.length === 0 ? (
-          <p className="text-sm text-white/60">Nenhum dado para exibir gráficos.</p>
-        ) : (
-          <div className="space-y-4">
-            <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
-              <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Valores 60%</p>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sectorChartValue60} margin={{ top: 32, right: 16, left: 8, bottom: 36 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                  <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
-                  <YAxis tick={{ fill: '#cbd5e1', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-                  <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipValues} />
-                  <Bar dataKey="value60" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                    {sectorChartValue60.map((item, idx) => (
-                      <Cell
-                        key={`cell-val60-${idx}`}
-                        fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
-                        style={{
-                          transform: hoverValue60 === idx ? 'translateY(-6px)' : 'translateY(0)',
-                          transition: 'transform 150ms ease',
-                        }}
-                        onMouseEnter={() => setHoverValue60(idx)}
-                        onMouseLeave={() => setHoverValue60(null)}
-                      />
-                    ))}
-                    <LabelList dataKey="value60" content={rotatedLabelValue as any} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
-              <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Valores 100%</p>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={sectorChartValue100} margin={{ top: 32, right: 16, left: 8, bottom: 36 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                  <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
-                  <YAxis tick={{ fill: '#cbd5e1', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-                  <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipValues} />
-                  <Bar dataKey="value100" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                    {sectorChartValue100.map((item, idx) => (
-                      <Cell
-                        key={`cell-val100-${idx}`}
-                        fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
-                        style={{
-                          transform: hoverValue100 === idx ? 'translateY(-6px)' : 'translateY(0)',
-                          transition: 'transform 150ms ease',
-                        }}
-                        onMouseEnter={() => setHoverValue100(idx)}
-                        onMouseLeave={() => setHoverValue100(null)}
-                      />
-                    ))}
-                    <LabelList
-                      dataKey="value100"
-                      position="top"
-                      formatter={(v: any) => formatCurrency(Number(v ?? 0))}
-                      fill="#e2e8f0"
-                      fontSize={10}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* GRAFICO DISTRIBUIÇÃO MENSAL - HORAS E VALORES */}
-      <div className="bg-white-to-b border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/10">
-        <div className="flex items-center justify-between text-white/70 text-sm mb-2">
-          <div className="flex items-center gap-2">
-            <ChartLine className="w-5 h-5 text-emerald-300" />
-            Distribuição mensal (Horas e Valores)
+      {monthlyChartData.length > 0 && (
+        <div className="bg-white-to-b border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/10">
+          <div className="flex items-center justify-between text-white/70 text-sm mb-2">
+            <div className="flex items-center gap-2">
+              <ChartLine className="w-5 h-5 text-emerald-300" />
+              Distribuição mensal (Horas e Valores)
+            </div>
           </div>
-        </div>
-        {monthlyChartData.length === 0 ? (
-          <p className="text-sm text-white/60">Nenhum dado para exibir gráficos.</p>
-        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white/5 border border-white/10 rounded-lg p-3">
               <p className="text-xs text-white/60 mb-2">Horas 60% e 100%</p>
@@ -1348,21 +1368,9 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={monthlyChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                    <XAxis 
-                      dataKey="label" 
-                      tick={{ fill: '#9aa4b3ff', fontSize: 10 }} 
-                      axisLine={{ stroke: '#475569' }} 
-                      interval={0}
-                      height={80}
-                      />
-                    <YAxis 
-                      tick={{ fill: '#9aa4b3ff', fontSize: 10 }} 
-                      axisLine={{ stroke: '#475569' }} 
-                      tickCount={8} />
-                    <Tooltip
-                      formatter={(val: any) => formatMinutes(Math.round(Number(val || 0) * 60))}
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#e2e8f0' }}
-                    />
+                    <XAxis dataKey="label" tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} interval={0} height={80} />
+                    <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                    <Tooltip formatter={(val: any) => formatMinutes(Math.round(Number(val || 0) * 60))} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#e2e8f0' }} />
                     <Line type="monotone" dataKey="hours60" name="Horas 60%" stroke="#38bdf8" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false}>
                       <LabelList dataKey="hours60" position="top" formatter={(v: any) => formatMinutes(Math.round(Number(v || 0) * 60))} fill="#e2e8f0" fontSize={10} />
                     </Line>
@@ -1381,10 +1389,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                     <XAxis dataKey="label" tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
                     <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-                    <Tooltip
-                      formatter={(val: any) => formatCurrency(Number(val || 0))}
-                      contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#e2e8f0' }}
-                    />
+                    <Tooltip formatter={(val: any) => formatCurrency(Number(val || 0))} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#e2e8f0' }} />
                     <Line type="monotone" dataKey="value60" name="Valor 60%" stroke="#38bdf8" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false}>
                       <LabelList dataKey="value60" position="top" formatter={(v: any) => formatCurrency(Number(v || 0))} fill="#e2e8f0" fontSize={10} />
                     </Line>
@@ -1396,8 +1401,8 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
     </div>
   )
