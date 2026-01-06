@@ -288,7 +288,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
       .filter((value): value is { year: number; month: number } => Boolean(value))
       .filter((value) => (!yearFilter ? true : value.year === Number(yearFilter)))
       .map((value) => value.month)
-    return Array.from(new Set(months)).sort((a, b) => a - b)
+    return Array.from(new Set(months)).sort((a, b) => b - a)
   }, [competenceOptions, yearFilter])
 
   const sectorOptions = useMemo(() => {
@@ -312,7 +312,8 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
 
   useEffect(() => {
     if (companyOptions.length > 0 && (!companyFilter || !companyOptions.includes(Number(companyFilter)))) {
-      setCompanyFilter(String(companyOptions[0]))
+      const pantaneira = companyOptions.find((company) => company === 5)
+      setCompanyFilter(String(pantaneira ?? companyOptions[0]))
     }
   }, [companyOptions, companyFilter])
 
@@ -712,7 +713,8 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
   }, [costEventRows, employeeInfo, filteredRegistrations])
 
   const handleClearFilters = () => {
-    setCompanyFilter(companyOptions.length ? String(companyOptions[0]) : '')
+    const pantaneira = companyOptions.find((company) => company === 5)
+    setCompanyFilter(companyOptions.length ? String(pantaneira ?? companyOptions[0]) : '')
     setYearFilter(yearOptions.length ? String(yearOptions[0]) : '')
     setMonthFilter(monthOptions.length ? String(monthOptions[0]) : '')
     setSectorFilter('')

@@ -27,6 +27,7 @@ type ClosingRow = {
   company: number | null
   competence: string | null
   registration: number | null
+  status_: number | null
 }
 
 type EmployeeSectorRow = {
@@ -226,7 +227,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       try {
         const closingData: ClosingRow[] = []
         const closingUrl = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
-        closingUrl.searchParams.set('select', 'company,competence,registration')
+        closingUrl.searchParams.set('select', 'company,competence,registration,status_')
         const closingPageSize = 1000
         let closingStart = 0
         let closingHasMore = true
@@ -242,11 +243,17 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           if (!closingRes.ok) {
             throw new Error(await closingRes.text())
           }
-          const closingChunkRaw = (await closingRes.json()) as { company: number | null; competence: string | null; registration: number | null }[]
+          const closingChunkRaw = (await closingRes.json()) as {
+            company: number | null
+            competence: string | null
+            registration: number | null
+            status_: number | null
+          }[]
           const closingChunk: ClosingRow[] = closingChunkRaw.map((row) => ({
             competence: row.competence ?? null,
             registration: row.registration ?? null,
             company: row.company ?? null,
+            status_: row.status_ ?? null,
           }))
           closingData.push(...closingChunk)
           if (closingChunk.length < closingPageSize) {
@@ -380,7 +387,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       .filter((value): value is { year: number; month: number } => Boolean(value))
       .filter((value) => (!yearFilter ? true : value.year === Number(yearFilter)))
       .map((value) => value.month)
-    return Array.from(new Set(months)).sort((a, b) => a - b)
+    return Array.from(new Set(months)).sort((a, b) => b - a)
   }, [competenceOptions, yearFilter])
 
   const sectorOptions = useMemo(() => {
@@ -404,7 +411,8 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
 
   useEffect(() => {
     if (!companyFilter && companyOptions.length > 0) {
-      setCompanyFilter(String(companyOptions[0]))
+      const pantaneira = companyOptions.find((company) => company === 5)
+      setCompanyFilter(String(pantaneira ?? companyOptions[0]))
     }
   }, [companyOptions, companyFilter])
 
@@ -743,26 +751,24 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
     }
   }, [absenceEventRows, filteredRegistrations, workedHours.total])
 
-  const absenceByEventTotals = useMemo(() => {
-    const totals = new Map<number, number>()
-    absenceEventRows.forEach((row) => {
-      const eventId = Number(row.events)
-      const value = Number(row.references_ ?? 0)
-      if (!Number.isFinite(eventId) || !Number.isFinite(value)) return
-      totals.set(eventId, (totals.get(eventId) ?? 0) + value)
-    })
-    return totals
-  }, [absenceEventRows])
-
   const absenceByEventCounts = useMemo(() => {
-    const counts = new Map<number, number>()
+    const counts = new Map<number, Set<string>>()
     absenceEventRows.forEach((row) => {
       const eventId = Number(row.events)
       if (!Number.isFinite(eventId)) return
-      counts.set(eventId, (counts.get(eventId) ?? 0) + 1)
+      const regKey = normalizeRegistration(row.registration)
+      if (!regKey || !filteredRegistrations.has(regKey)) return
+      if (!counts.has(eventId)) {
+        counts.set(eventId, new Set())
+      }
+      counts.get(eventId)!.add(regKey)
     })
-    return counts
-  }, [absenceEventRows])
+    const totals = new Map<number, number>()
+    counts.forEach((set, id) => {
+      totals.set(id, set.size)
+    })
+    return totals
+  }, [absenceEventRows, filteredRegistrations])
 
   const absenceByTypeChartData = useMemo(() => {
     const mapping: { label: string; eventIds: number[] }[] = [
@@ -775,7 +781,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
 
     const data = mapping
       .map((item, idx) => {
-        const value = item.eventIds.reduce((sum, id) => sum + (absenceByEventTotals.get(id) ?? 0), 0)
+        const value = item.eventIds.reduce((sum, id) => sum + (absenceByEventCounts.get(id) ?? 0), 0)
         return { ...item, value, color: CHART_COLORS[idx % CHART_COLORS.length] }
       })
       .filter((item) => item.value > 0)
@@ -787,120 +793,128 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
         percent: total > 0 ? (item.value / total) * 100 : 0,
       }))
       .sort((a, b) => b.value - a.value)
-  }, [absenceByEventTotals])
+  }, [absenceByEventCounts])
 
   const absenceCountsByGroup = useMemo(() => {
-    const isAllMonths = monthFilter === ''
-    if (isAllMonths) {
-      const monthMap = new Map<number, { atestados: number; faltas: number }>()
-      absenceEventRows.forEach((row) => {
-        const parsed = parseYearMonth(row.competence)
-        if (!parsed) return
-        if (yearFilter && parsed.year !== Number(yearFilter)) return
-        if (!monthMap.has(parsed.month)) {
-          monthMap.set(parsed.month, { atestados: 0, faltas: 0 })
-        }
-        const monthData = monthMap.get(parsed.month)!
-        if (ABSENCE_EVENT_IDS.MEDICAL_LEAVE.includes(row.events ?? -1)) {
-          monthData.atestados += 1
-        }
-        if (ABSENCE_EVENT_IDS.UNJUSTIFIED_ABSENCE.includes(row.events ?? -1)) {
-          monthData.faltas += 1
-        }
-      })
-      let atestados = 0
-      let faltas = 0
-      monthMap.forEach((value) => {
-        atestados += value.atestados
-        faltas += value.faltas
-      })
-      return { atestados, faltas }
-    }
-
-    const atestados = (absenceByEventCounts.get(56) ?? 0) + (absenceByEventCounts.get(57) ?? 0)
-    const faltas =
-      (absenceByEventCounts.get(502) ?? 0) +
-      (absenceByEventCounts.get(651) ?? 0) +
-      (absenceByEventCounts.get(652) ?? 0)
-    return { atestados, faltas }
-  }, [absenceByEventCounts, absenceEventRows, monthFilter, yearFilter])
+    const atestados = new Set<string>()
+    const faltas = new Set<string>()
+    absenceEventRows.forEach((row) => {
+      const regKey = normalizeRegistration(row.registration)
+      if (!regKey || !filteredRegistrations.has(regKey)) return
+      if (ABSENCE_EVENT_IDS.MEDICAL_LEAVE.includes(row.events ?? -1)) {
+        atestados.add(regKey)
+      }
+      if (ABSENCE_EVENT_IDS.UNJUSTIFIED_ABSENCE.includes(row.events ?? -1)) {
+        faltas.add(regKey)
+      }
+    })
+    return { atestados: atestados.size, faltas: faltas.size }
+  }, [absenceEventRows, filteredRegistrations])
 
   const absenceBySectorChartData = useMemo(() => {
     const isAllMonths = monthFilter === ''
     if (isAllMonths) {
-      const monthMap = new Map<number, number>()
+      const monthMap = new Map<number, Set<string>>()
       absenceEventRows.forEach((row) => {
         const regKey = normalizeRegistration(row.registration)
         if (!regKey || !filteredRegistrations.has(regKey)) return
         const parsed = parseYearMonth(row.competence)
         if (!parsed) return
         if (yearFilter && parsed.year !== Number(yearFilter)) return
-        monthMap.set(parsed.month, (monthMap.get(parsed.month) || 0) + (row.references_ ?? 0))
+        if (!monthMap.has(parsed.month)) {
+          monthMap.set(parsed.month, new Set())
+        }
+        monthMap.get(parsed.month)!.add(regKey)
       })
       return Array.from(monthMap.entries())
         .sort((a, b) => a[0] - b[0])
-        .map(([month, totalValue], idx) => ({
+        .map(([month, regs], idx) => ({
           label: formatMonthLabel(month),
-          totalValue,
+          totalValue: regs.size,
           color: CHART_COLORS[idx % CHART_COLORS.length],
         }))
     }
 
-    const sectorAbsences = new Map<string, number>()
+    const sectorAbsences = new Map<string, Set<string>>()
     absenceEventRows.forEach((row) => {
       const regKey = normalizeRegistration(row.registration)
       if (!regKey || !filteredRegistrations.has(regKey)) return
       const sector = abbreviateSector(employeeInfo.get(regKey)?.sector ?? null)
-      sectorAbsences.set(sector, (sectorAbsences.get(sector) || 0) + (row.references_ ?? 0)) // Assuming references_ is days
+      if (!sectorAbsences.has(sector)) {
+        sectorAbsences.set(sector, new Set())
+      }
+      sectorAbsences.get(sector)!.add(regKey)
     })
     return Array.from(sectorAbsences.entries())
-      .map(([label, totalValue], idx) => ({ label, totalValue, color: CHART_COLORS[idx % CHART_COLORS.length] }))
+      .map(([label, regs], idx) => ({ label, totalValue: regs.size, color: CHART_COLORS[idx % CHART_COLORS.length] }))
       .sort((a, b) => b.totalValue - a.totalValue)
   }, [absenceEventRows, employeeInfo, filteredRegistrations, monthFilter, yearFilter])
 
   const headcountBySectorChartData = useMemo(() => {
     const isAllMonths = monthFilter === ''
+    const targetYear = Number(yearFilter)
+    const targetMonth = Number(monthFilter)
+    const hasMonthFilter = monthFilter !== ''
+    const filteredRows: { regKey: string; month: number; sector: string; status_: number | null }[] = []
+
+    closingRows.forEach((row) => {
+      const regKey = normalizeRegistration(row.registration)
+      if (!regKey) return
+      const info = employeeInfo.get(regKey)
+      if (companyFilter && String(info?.company ?? '') !== companyFilter) return
+      if (sectorFilter && info?.sector !== sectorFilter) return
+      const parsed = parseYearMonth(row.competence)
+      if (!parsed) return
+      if (yearFilter && parsed.year !== targetYear) return
+      if (hasMonthFilter && parsed.month !== targetMonth) return
+      filteredRows.push({
+        regKey,
+        month: parsed.month,
+        sector: abbreviateSector(info?.sector ?? null),
+        status_: row.status_ ?? null,
+      })
+    })
+
     if (isAllMonths) {
-      const monthMap = new Map<number, { total: number; active: number }>()
-      closingRegistrationsByMonth.forEach((regs, month) => {
-        let total = 0
-        let active = 0
-        regs.forEach((reg) => {
-          total += 1
-          if (employeeInfo.get(reg)?.status === 1) active += 1
-        })
-        monthMap.set(month, { total, active })
+      const monthMap = new Map<number, { total: Set<string>; active: Set<string> }>()
+      filteredRows.forEach((row) => {
+        if (!monthMap.has(row.month)) {
+          monthMap.set(row.month, { total: new Set(), active: new Set() })
+        }
+        const entry = monthMap.get(row.month)!
+        entry.total.add(row.regKey)
+        if (row.status_ === 1 || row.status_ === 2 || row.status_ === 14) {
+          entry.active.add(row.regKey)
+        }
       })
       return Array.from(monthMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([month, values]) => ({
           label: formatMonthLabel(month),
-          total: values.total,
-          active: values.active,
+          total: values.total.size,
+          active: values.active.size,
         }))
     }
 
-    const sectorMap = new Map<string, { total: number; active: number }>()
-    closingRegistrations.forEach((reg) => {
-      const info = employeeInfo.get(reg)
-      const sector = abbreviateSector(info?.sector ?? null)
-      if (!sectorMap.has(sector)) {
-        sectorMap.set(sector, { total: 0, active: 0 })
+    const sectorMap = new Map<string, { total: Set<string>; active: Set<string> }>()
+    filteredRows.forEach((row) => {
+      if (!sectorMap.has(row.sector)) {
+        sectorMap.set(row.sector, { total: new Set(), active: new Set() })
       }
-      const entry = sectorMap.get(sector)!
-      entry.total += 1
-      if (info?.status === 1) {
-        entry.active += 1
+      const entry = sectorMap.get(row.sector)!
+      entry.total.add(row.regKey)
+      if (row.status_ === 1 || row.status_ === 2 || row.status_ === 14) {
+        entry.active.add(row.regKey)
       }
     })
     return Array.from(sectorMap.entries())
       .map(([label, values]) => ({
         label,
-        total: values.total,
-        active: values.active,
+        total: values.total.size,
+        active: values.active.size,
       }))
       .sort((a, b) => b.total - a.total)
-  }, [closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter])
+  }, [closingRows, companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
   const headcountTotals = useMemo(
     () =>
@@ -916,54 +930,39 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
   )
 
   const extraIndicators = useMemo(() => {
-    const isAllMonths = monthFilter === ''
-
-    const totalCollaborators = isAllMonths
-      ? Array.from(closingRegistrationsByMonth.values()).reduce((sum, regs) => sum + regs.size, 0)
-      : closingRegistrations.size
-
-    let activeEmployees = 0
-    if (isAllMonths) {
-      closingRegistrationsByMonth.forEach((regs) => {
-        regs.forEach((reg) => {
-          const status = employeeInfo.get(reg)?.status
-          if (status === 1) activeEmployees += 1
-        })
-      })
-    } else {
-      closingRegistrations.forEach((reg) => {
-        const status = employeeInfo.get(reg)?.status
-        if (status === 1) activeEmployees += 1
-      })
-    }
-
-    let totalAbsenceEvents = 0
-    if (isAllMonths) {
-      closingRegistrationsByMonth.forEach((regs) => {
-        regs.forEach((reg) => {
-          const status = employeeInfo.get(reg)?.status
-          if (status === 1 || status === 2 || status === 7) return
-          totalAbsenceEvents += 1
-        })
-      })
-    } else {
-      closingRegistrations.forEach((reg) => {
-        const status = employeeInfo.get(reg)?.status
-        if (status === 1 || status === 2 || status === 7) return
-        totalAbsenceEvents += 1
-      })
-    }
-
-    const vacationEmployees = new Set<string>()
-    const vacationSource = isAllMonths ? Array.from(closingRegistrationsByMonth.values()) : [closingRegistrations]
-    vacationSource.forEach((regs) => {
-      regs.forEach((reg) => {
-        const status = employeeInfo.get(reg)?.status
-        if (status === 2) {
-          vacationEmployees.add(`${reg}-${status}`)
-        }
-      })
+    const targetYear = Number(yearFilter)
+    const targetMonth = Number(monthFilter)
+    const hasMonthFilter = monthFilter !== ''
+    const filteredClosingRowsForStatus = closingRows.filter((row) => {
+      const regKey = normalizeRegistration(row.registration)
+      if (!regKey) return false
+      const info = employeeInfo.get(regKey)
+      if (companyFilter && String(info?.company ?? '') !== companyFilter) return false
+      if (sectorFilter && info?.sector !== sectorFilter) return false
+      const parsed = parseYearMonth(row.competence)
+      if (!parsed) return false
+      if (yearFilter && parsed.year !== targetYear) return false
+      if (hasMonthFilter && parsed.month !== targetMonth) return false
+      return true
     })
+
+    const totalCollaborators = new Set(filteredClosingRowsForStatus.map((row) => row.registration)).size
+
+    const activeEmployees = new Set(
+      filteredClosingRowsForStatus
+        .filter((row) => row.status_ === 1 || row.status_ === 2 || row.status_ === 14)
+        .map((row) => row.registration)
+    ).size
+
+    const totalAbsenceEvents = new Set(
+      filteredClosingRowsForStatus
+        .filter((row) => row.status_ !== 1 && row.status_ !== 2 && row.status_ !== 7 && row.status_ !== 14)
+        .map((row) => row.registration)
+    ).size
+
+    const vacationEmployees = new Set(
+      filteredClosingRowsForStatus.filter((row) => row.status_ === 2).map((row) => row.registration)
+    )
 
     return {
       totalCollaborators,
@@ -971,35 +970,51 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       activeEmployees,
       vacationEmployees: vacationEmployees.size,
     }
-  }, [absenceEventRows, closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter])
+  }, [absenceEventRows, closingRegistrations, closingRegistrationsByMonth, closingRows, companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
   const absenceByStatusChartData = useMemo(() => {
     const isAllMonths = monthFilter === ''
-    if (isAllMonths) {
-      const monthTotals = Array.from(closingRegistrationsByMonth.entries())
-        .map(([month, regs]) => {
-          let total = 0
-          regs.forEach((reg) => {
-            const status = Number(employeeInfo.get(reg)?.status)
-            if ([1, 2, 7].includes(status)) return
-            total += 1
-          })
-          return { month, total }
-        })
-        .filter((item) => item.total > 0)
-        .sort((a, b) => a.month - b.month)
+    const targetYear = Number(yearFilter)
+    const targetMonth = Number(monthFilter)
+    const hasMonthFilter = monthFilter !== ''
+    const filteredRows: { month: number; status_: number | null }[] = []
 
-      return monthTotals.map((item, idx) => ({
-        label: formatMonthLabel(item.month),
-        totalValue: item.total,
-        color: CHART_COLORS[idx % CHART_COLORS.length],
-      }))
+    closingRows.forEach((row) => {
+      const regKey = normalizeRegistration(row.registration)
+      if (!regKey) return
+      const info = employeeInfo.get(regKey)
+      if (companyFilter && String(info?.company ?? '') !== companyFilter) return
+      if (sectorFilter && info?.sector !== sectorFilter) return
+      const parsed = parseYearMonth(row.competence)
+      if (!parsed) return
+      if (yearFilter && parsed.year !== targetYear) return
+      if (hasMonthFilter && parsed.month !== targetMonth) return
+      filteredRows.push({ month: parsed.month, status_: row.status_ ?? null })
+    })
+
+    if (isAllMonths) {
+      const monthTotals = new Map<number, number>()
+      filteredRows.forEach((row) => {
+        const status = Number(row.status_)
+        if ([1, 2, 7, 14].includes(status)) return
+        if (!Number.isFinite(status)) return
+        monthTotals.set(row.month, (monthTotals.get(row.month) || 0) + 1)
+      })
+
+      return Array.from(monthTotals.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([month, total], idx) => ({
+          label: formatMonthLabel(month),
+          totalValue: total,
+          color: CHART_COLORS[idx % CHART_COLORS.length],
+        }))
+        .filter((item) => item.totalValue > 0)
     }
 
     const map = new Map<number, number>()
-    closingRegistrations.forEach((reg) => {
-      const status = Number(employeeInfo.get(reg)?.status)
-      if ([1, 2, 7].includes(status)) return
+    filteredRows.forEach((row) => {
+      const status = Number(row.status_)
+      if ([1, 2, 7, 14].includes(status)) return
       if (!Number.isFinite(status)) return
       map.set(status, (map.get(status) || 0) + 1)
     })
@@ -1009,30 +1024,35 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
       totalValue,
       color: CHART_COLORS[idx % CHART_COLORS.length],
     }))
-  }, [closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter, statusDescriptions])
+  }, [closingRows, companyFilter, employeeInfo, monthFilter, sectorFilter, statusDescriptions, yearFilter])
 
   const vacationBySectorChartData = useMemo(() => {
     const isAllMonths = monthFilter === ''
+    const targetYear = Number(yearFilter)
+    const targetMonth = Number(monthFilter)
+    const hasMonthFilter = monthFilter !== ''
     const map = new Map<string, number>()
 
-    const accumulate = (reg: string) => {
-      const info = employeeInfo.get(reg)
+    closingRows.forEach((row) => {
+      const regKey = normalizeRegistration(row.registration)
+      if (!regKey) return
+      const info = employeeInfo.get(regKey)
       if (!info) return
-      if (info.status !== 2) return
+      if (companyFilter && String(info.company ?? '') !== companyFilter) return
+      if (sectorFilter && info.sector !== sectorFilter) return
+      const parsed = parseYearMonth(row.competence)
+      if (!parsed) return
+      if (yearFilter && parsed.year !== targetYear) return
+      if (!isAllMonths && hasMonthFilter && parsed.month !== targetMonth) return
+      if (row.status_ !== 2) return
       const sector = abbreviateSector(info.sector ?? null)
       map.set(sector, (map.get(sector) || 0) + 1)
-    }
-
-    if (isAllMonths) {
-      closingRegistrationsByMonth.forEach((regs) => regs.forEach(accumulate))
-    } else {
-      closingRegistrations.forEach(accumulate)
-    }
+    })
 
     return Array.from(map.entries())
       .map(([label, totalValue], idx) => ({ label, totalValue, color: CHART_COLORS[idx % CHART_COLORS.length] }))
       .sort((a, b) => b.totalValue - a.totalValue)
-  }, [closingRegistrations, closingRegistrationsByMonth, employeeInfo, monthFilter])
+  }, [closingRows, companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
   const handleClearFilters = () => {
     setCompanyFilter(companyOptions.length ? String(companyOptions[0]) : '')
@@ -1451,7 +1471,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
             {`Ausências por ${monthFilter === '' ? 'Mês' : 'Setor'}${titleSuffix}${refLabel}`}
           </p>
-          <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(absenceIndicators.totalAbsenceDays)} Hrs</span>
+          <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(absenceIndicators.totalEmployeesWithAbsence)}</span>
         </div>
         {isLoadingAbsences ? (
           <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
@@ -1509,7 +1529,7 @@ const PayrollAbsencesPanel: React.FC<PayrollAbsencesPanelProps> = ({ supabaseKey
                 {`Ausências por Tipo${titleSuffix}${refLabel}`}
               </p>
             </div>
-            <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(absenceIndicators.totalAbsenceDays)} Hrs</span>
+            <span className="text-emerald-300 text-xs font-semibold">{formatIndicator(absenceIndicators.totalEmployeesWithAbsence)}</span>
           </div>
           {isLoadingAbsences ? (
             <div className="h-72 flex items-center justify-center text-white/50 text-sm">Carregando...</div>
