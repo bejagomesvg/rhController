@@ -204,6 +204,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const [filterSector, setFilterSector] = useState<string>('')
   const [filterYear, setFilterYear] = useState<string>('')
   const [filterMonth, setFilterMonth] = useState<string>('')
+  const [monthTouched, setMonthTouched] = useState(false)
   const [filterDay, setFilterDay] = useState<string>('')
   const [filterText, setFilterText] = useState<string>('')
   const [pendingFilterText, setPendingFilterText] = useState<string>('') // usado para digitação sem aplicar imediatamente
@@ -212,7 +213,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const [error, setError] = useState<string | null>(null)
   const [sectorOptions, setSectorOptions] = useState<string[]>([])
   const [dayOptions, setDayOptions] = useState<string[]>([])
-  const [dayTouched, setDayTouched] = useState(false)
+  const [, setDayTouched] = useState(false)
   const [isTableVisible, setIsTableVisible] = useState(false)
   const [hoverHours60, setHoverHours60] = useState<number | null>(null)
   const [hoverHours100, setHoverHours100] = useState<number | null>(null)
@@ -338,30 +339,31 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   }, [filterYear, yearOptions])
 
   useEffect(() => {
-    if (!filterYear) return
+    if (!filterYear) {
+      setMonthTouched(false)
+      return
+    }
     const monthsForYear = rows
       .filter((r) => r.date_?.startsWith(`${filterYear}-`))
       .map((r) => r.date_!.split('-')[1])
     if (monthsForYear.length === 0) return
     const uniqueMonths = Array.from(new Set(monthsForYear)).sort()
     const lastMonth = uniqueMonths[uniqueMonths.length - 1]
-    if (!filterMonth || !uniqueMonths.includes(filterMonth)) {
+    if (!monthTouched && (!filterMonth || !uniqueMonths.includes(filterMonth))) {
       setFilterMonth(lastMonth)
     }
-  }, [filterYear, filterMonth, rows])
+  }, [filterYear, filterMonth, rows, monthTouched])
 
   useEffect(() => {
     // ao trocar ano ou mês, deixamos o dia ser recalculado
     setDayTouched(false)
     setFilterDay('')
+    if (filterMonth) {
+      setMonthTouched(true)
+    }
   }, [filterYear, filterMonth])
 
-  useEffect(() => {
-    if (dayTouched) return
-    if (!filterDay && dayOptions.length > 0) {
-      setFilterDay(dayOptions[dayOptions.length - 1])
-    }
-  }, [filterDay, dayOptions, dayTouched])
+  const isMonthSelected = Boolean(filterMonth)
 
   const filteredRows = useMemo(() => {
     const term = filterText.trim().toLowerCase()
@@ -652,6 +654,64 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const rowsForCharts = hasTextFilter && totalHrs60 <= 0 && totalHrs100 <= 0 ? [] : rowsForTotals
   const aggregatedRowsForCharts = useMemo(() => aggregateRows(rowsForCharts, aggregationModeTotals), [rowsForCharts, aggregationModeTotals])
 
+  const monthlyChartData = useMemo(() => {
+    const byMonth = new Map<
+      string,
+      {
+        hours60: number
+        hours100: number
+        value60: number
+        value100: number
+      }
+    >()
+    aggregatedRowsForCharts.forEach((r) => {
+      const [year, month] = (r.date_ || '').split('-')
+      if (!year || !month) return
+      const key = `${year}-${month}`
+      const salary = Number((r as any).salary ?? 0)
+      const hourly = salary ? salary / 220 : 0
+      const mins60Raw = r.mins505 + r.mins506 - r.mins511 - r.mins512
+      const mins60 = allowNegative60 ? mins60Raw : Math.max(mins60Raw, 0)
+      const mins100Raw = r.mins303 + r.mins304
+      const mins100 = allowNegative60 ? mins100Raw : Math.max(mins100Raw, 0)
+      const value60 = hourly ? (mins60 / 60) * hourly * 1.6 : 0
+      const value100 = hourly ? (mins100 / 60) * hourly * 2 : 0
+      const prev = byMonth.get(key) || { hours60: 0, hours100: 0, value60: 0, value100: 0 }
+      byMonth.set(key, {
+        hours60: prev.hours60 + mins60,
+        hours100: prev.hours100 + mins100,
+        value60: prev.value60 + value60,
+        value100: prev.value100 + value100,
+      })
+    })
+    const monthAbbr: Record<string, string> = {
+      '01': 'JAN',
+      '02': 'FEV',
+      '03': 'MAR',
+      '04': 'ABR',
+      '05': 'MAI',
+      '06': 'JUN',
+      '07': 'JUL',
+      '08': 'AGO',
+      '09': 'SET',
+      '10': 'OUT',
+      '11': 'NOV',
+      '12': 'DEZ',
+    }
+    const arr = Array.from(byMonth.entries()).map(([key, data]) => {
+      const [, month] = key.split('-')
+      return {
+        key,
+        label: monthAbbr[month] ?? month,
+        hours60: data.hours60 / 60,
+        hours100: data.hours100 / 60,
+        value60: data.value60,
+        value100: data.value100,
+      }
+    })
+    return arr.sort((a, b) => a.key.localeCompare(b.key))
+  }, [aggregatedRowsForCharts, allowNegative60])
+
   const sectorChartData: SectorChartDatum[] = useMemo(() => {
     const bySector = new Map<
       string,
@@ -692,37 +752,40 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
     return arr.sort((a, b) => b.hoursTotal - a.hoursTotal)
   }, [aggregatedRowsForCharts, allowNegative60])
 
+  const chartBaseItems = useMemo(() => {
+    if (!isMonthSelected) {
+      return monthlyChartData.map((m, idx) => ({
+        sector: m.label,
+        hours60Hours: m.hours60,
+        hours100Hours: m.hours100,
+        hoursTotal: m.hours60 + m.hours100,
+        value60: m.value60,
+        value100: m.value100,
+        valueTotal: m.value60 + m.value100,
+        color: CHART_COLORS[idx % CHART_COLORS.length],
+      }))
+    }
+    return sectorChartData.map((item, idx) => ({
+      ...item,
+      color: item.color ?? CHART_COLORS[idx % CHART_COLORS.length],
+    }))
+  }, [isMonthSelected, monthlyChartData, sectorChartData])
+
   const sectorChartHours60 = useMemo(
-    () =>
-      sectorChartData
-        .filter((d) => d.hours60Hours !== 0)
-        .sort((a, b) => b.hours60Hours - a.hours60Hours)
-        .map((item, idx) => ({ ...item, color: item.color ?? CHART_COLORS[idx % CHART_COLORS.length] })),
-    [sectorChartData]
+    () => chartBaseItems.filter((d) => d.hours60Hours !== 0).sort((a, b) => b.hours60Hours - a.hours60Hours),
+    [chartBaseItems]
   )
   const sectorChartHours100 = useMemo(
-    () =>
-      sectorChartData
-        .filter((d) => d.hours100Hours !== 0)
-        .sort((a, b) => b.hours100Hours - a.hours100Hours)
-        .map((item, idx) => ({ ...item, color: item.color ?? CHART_COLORS[idx % CHART_COLORS.length] })),
-    [sectorChartData]
+    () => chartBaseItems.filter((d) => d.hours100Hours !== 0).sort((a, b) => b.hours100Hours - a.hours100Hours),
+    [chartBaseItems]
   )
   const sectorChartValue60 = useMemo(
-    () =>
-      sectorChartData
-        .filter((d) => d.value60 !== 0)
-        .sort((a, b) => b.value60 - a.value60)
-        .map((item, idx) => ({ ...item, color: item.color ?? CHART_COLORS[idx % CHART_COLORS.length] })),
-    [sectorChartData]
+    () => chartBaseItems.filter((d) => d.value60 !== 0).sort((a, b) => b.value60 - a.value60),
+    [chartBaseItems]
   )
   const sectorChartValue100 = useMemo(
-    () =>
-      sectorChartData
-        .filter((d) => d.value100 !== 0)
-        .sort((a, b) => b.value100 - a.value100)
-        .map((item, idx) => ({ ...item, color: item.color ?? CHART_COLORS[idx % CHART_COLORS.length] })),
-    [sectorChartData]
+    () => chartBaseItems.filter((d) => d.value100 !== 0).sort((a, b) => b.value100 - a.value100),
+    [chartBaseItems]
   )
 
   const hasHours60Data = sectorChartHours60.length > 0
@@ -731,7 +794,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   const hasValue100Data = sectorChartValue100.length > 0
   const hasAnyHoursChart = hasHours60Data || hasHours100Data
   const hasAnyValueChart = hasValue60Data || hasValue100Data
-
+  const useRotatedLabels = isMonthSelected
   const rotatedLabelHours60 = useMemo(
     () =>
       createRotatedLabelRenderer(
@@ -748,50 +811,6 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       ),
     []
   )
-
-  const monthlyChartData = useMemo(() => {
-    const byMonth = new Map<
-      string,
-      {
-        hours60: number
-        hours100: number
-        value60: number
-        value100: number
-      }
-    >()
-    aggregatedRowsForCharts.forEach((r) => {
-      const [year, month] = (r.date_ || '').split('-')
-      if (!year || !month) return
-      const key = `${year}-${month}`
-      const salary = Number((r as any).salary ?? 0)
-      const hourly = salary ? salary / 220 : 0
-      const mins60Raw = r.mins505 + r.mins506 - r.mins511 - r.mins512
-      const mins60 = allowNegative60 ? mins60Raw : Math.max(mins60Raw, 0)
-      const mins100Raw = r.mins303 + r.mins304
-      const mins100 = allowNegative60 ? mins100Raw : Math.max(mins100Raw, 0)
-      const value60 = hourly ? (mins60 / 60) * hourly * 1.6 : 0
-      const value100 = hourly ? (mins100 / 60) * hourly * 2 : 0
-      const prev = byMonth.get(key) || { hours60: 0, hours100: 0, value60: 0, value100: 0 }
-      byMonth.set(key, {
-        hours60: prev.hours60 + mins60,
-        hours100: prev.hours100 + mins100,
-        value60: prev.value60 + value60,
-        value100: prev.value100 + value100,
-      })
-    })
-    const arr = Array.from(byMonth.entries()).map(([key, data]) => {
-      const [year, month] = key.split('-')
-      return {
-        key,
-        label: `${month}/${year}`,
-        hours60: data.hours60 / 60,
-        hours100: data.hours100 / 60,
-        value60: data.value60,
-        value100: data.value100,
-      }
-    })
-    return arr.sort((a, b) => a.key.localeCompare(b.key))
-  }, [aggregatedRowsForCharts, allowNegative60])
   const barTooltipHours = useMemo(() => makeBarTooltipHours(), [])
   const barTooltipValues = useMemo(() => makeBarTooltipValues(), [])
 
@@ -959,6 +978,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
               value={filterMonth}
               onChange={(e) => {
                 clearTextFilter()
+                setMonthTouched(true)
                 setFilterMonth(e.target.value)
               }}
             >
@@ -972,6 +992,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
             <select
               className="w-16 bg-white/5 text-emerald-200 text-sm border border-white/15 rounded-md px-3 py-2 outline-none focus:border-emerald-400/70 focus:ring-1 focus:ring-emerald-400/40 transition"
               value={filterDay}
+              disabled={!isMonthSelected}
               onChange={(e) => {
                 clearTextFilter()
                 setDayTouched(true)
@@ -989,6 +1010,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
         </div>
       </div>
 
+      {isMonthSelected && (
       <div className="bg-white/5 border border-white/10 rounded-lg p-4 shadow-inner shadow-black/10">
         <div className="flex flex-col gap-2 mb-3">
 
@@ -1196,6 +1218,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
           </div>
         )}
       </div>
+      )}
 
       {/* GRAFICO HORAS POR SETOR */}
       {hasAnyHoursChart && (
@@ -1203,17 +1226,17 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
           <div className="flex items-center justify-between text-white/80 text-sm mb-3">
             <div className="flex items-center gap-2">
               <Clock10 className="w-5 h-5 text-emerald-300" />
-              Distribuição das Horas por Setor
+              {isMonthSelected ? 'Distribuição das Horas por Setor' : 'Distribuição das Horas por Mês'}
             </div>
-            <div className="flex items-center gap-2 text-base">
-              <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
-                60% Hrs: {formatMinutes(Math.round(sectorChartData.reduce((acc, s) => acc + s.hours60Hours * 60, 0)))}
-              </span>
-              <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
-                100% Hrs: {formatMinutes(Math.round(sectorChartData.reduce((acc, s) => acc + s.hours100Hours * 60, 0)))}
-              </span>
-            </div>
+          <div className="flex items-center gap-2 text-base">
+            <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
+              60% Hrs: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + s.hours60Hours * 60, 0)))}
+            </span>
+            <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
+              100% Hrs: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + s.hours100Hours * 60, 0)))}
+            </span>
           </div>
+        </div>
           <div className="space-y-4">
             {hasHours60Data && (
               <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
@@ -1237,7 +1260,11 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                           onMouseLeave={() => setHoverHours60(null)}
                         />
                       ))}
-                      <LabelList dataKey="hours60Hours" position="top" content={rotatedLabelHours60 as any} />
+                      {useRotatedLabels ? (
+                        <LabelList dataKey="hours60Hours" position="top" content={rotatedLabelHours60 as any} />
+                      ) : (
+                        <LabelList dataKey="hours60Hours" position="top" formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))} fill="#e2e8f0" fontSize={11} />
+                      )}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -1280,7 +1307,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
           <div className="flex items-center justify-between text-white/80 text-sm mb-3">
             <div className="flex items-center gap-2">
               <Receipt className="w-5 h-5 text-emerald-300" />
-              Distribuição dos Valores por Setor
+              {isMonthSelected ? 'Distribuição dos Valores por Setor' : 'Distribuição dos Valores por Mês'}
             </div>
             <div className="flex items-center gap-2 text-base">
               <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
@@ -1314,7 +1341,11 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                           onMouseLeave={() => setHoverValue60(null)}
                         />
                       ))}
-                      <LabelList dataKey="value60" content={rotatedLabelValue as any} />
+                      {useRotatedLabels ? (
+                        <LabelList dataKey="value60" position="top" content={rotatedLabelValue as any} />
+                      ) : (
+                        <LabelList dataKey="value60" position="top" formatter={(v: any) => formatCurrency(Number(v ?? 0))} fill="#e2e8f0" fontSize={10} />
+                      )}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -1353,7 +1384,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       )}
 
       {/* GRAFICO DISTRIBUIÇÃO MENSAL - HORAS E VALORES */}
-      {monthlyChartData.length > 0 && (
+      {isMonthSelected && monthlyChartData.length > 0 && (
         <div className="bg-white-to-b border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/10">
           <div className="flex items-center justify-between text-white/70 text-sm mb-2">
             <div className="flex items-center gap-2">
