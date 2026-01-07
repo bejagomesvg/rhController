@@ -932,6 +932,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
       return Array.from(monthMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([month, values]) => toEntry(formatMonthLabel(month), values))
+        .filter((item) => item.aprendiz + item.socioDiretor > 0)
     }
 
     const sectorMap = new Map<string, { aprendiz: Set<string>; socio: Set<string> }>()
@@ -957,6 +958,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     })
     return Array.from(sectorMap.entries())
       .map(([label, values]) => toEntry(label, values))
+      .filter((item) => item.aprendiz + item.socioDiretor > 0)
       .sort((a, b) => b.aprendiz + b.socioDiretor - (a.aprendiz + a.socioDiretor))
   }, [apprenticeRoles, closingRows, companyFilter, employeeInfo, monthFilter, sectorFilter, yearFilter])
 
@@ -1725,7 +1727,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {collaboratorSectorChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
@@ -1770,7 +1772,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {activeCollaboratorSectorChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
@@ -1825,12 +1827,16 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               <Bar dataKey="aprendiz" name="Aprendiz" fill={APPRENTICE_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 <LabelList
                   dataKey="aprendiz"
                   position="top"
-                  formatter={formatLabelNumber}
+                  formatter={(value: unknown) => {
+                    const numeric = Number(value)
+                    if (Number.isFinite(numeric) && numeric > 0) return formatLabelNumber(numeric)
+                    return ''
+                  }}
                   fill="#FFFFFF"
                   fontSize={12}
                 />
@@ -1839,7 +1845,11 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 <LabelList
                   dataKey="socioDiretor"
                   position="top"
-                  formatter={formatLabelNumber}
+                  formatter={(value: unknown) => {
+                    const numeric = Number(value)
+                    if (Number.isFinite(numeric) && numeric > 0) return formatLabelNumber(numeric)
+                    return ''
+                  }}
                   fill="#FFFFFF"
                   fontSize={12}
                 />
@@ -1889,7 +1899,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               {absenceByStatusAnnualSeries.keys.map((key) => (
                 <Bar key={key.key} dataKey={key.key} name={key.label} fill={key.color} radius={[3, 3, 0, 0]} isAnimationActive={false}>
                   <LabelList
@@ -1915,7 +1925,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 axisLine={{ stroke: '#475569' }}
               />
               <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {absenceByStatusChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
@@ -1962,7 +1972,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
               axisLine={{ stroke: '#475569' }}
             />
             <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-            <RechartsTooltip content={turnoverTooltip} cursor={{ fill: 'transparent' }} />
+            <RechartsTooltip content={turnoverTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
             <Bar dataKey="admissions" name="Admissao" fill={ADMISSION_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
               <LabelList
                 dataKey="admissions"
@@ -2017,7 +2027,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
                 tickCount={6}
               />
-              <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               <Bar dataKey="value" name="Absenteísmo" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {absenteeismSectorChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
@@ -2071,7 +2081,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
                 tickCount={6}
               />
-              <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'transparent' }} />
+              <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
               <Bar dataKey="value" name="Turnover" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                 {turnoverSectorPercentChartData.map((entry) => (
                   <Cell key={entry.label} fill={entry.color} />
@@ -2185,7 +2195,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                 <XAxis dataKey="label" interval={0} tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
                 <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-                <RechartsTooltip content={tenureTooltip} cursor={{ fill: 'transparent' }} />
+                <RechartsTooltip content={tenureTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
                 <Bar dataKey="value" name="Colaboradores" radius={[3, 3, 0, 0]} isAnimationActive={false}>
                   {tenureChartData.map((entry) => (
                     <Cell key={entry.label} fill={entry.color} />

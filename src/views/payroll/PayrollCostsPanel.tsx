@@ -14,7 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
-import { ACTIVE_BAR_HOVER, ChartTooltip } from '../../components/ChartTooltip'
+import { ChartTooltip } from '../../components/ChartTooltip'
 import { abbreviateSector } from '../../utils/abbreviateSector'
 import { createRotatedLabelRenderer } from '../../components/RotatedValueLabel'
 
@@ -917,14 +917,13 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     tickCount={8}
                     domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.2)]}
                   />
-                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
-                  <Bar
-                    dataKey="totalValue"
-                    radius={[3, 3, 0, 0]}
-                    isAnimationActive={false}
-                    animationDuration={0}
-                    activeBar={ACTIVE_BAR_HOVER}
-                  >
+                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar
+                  dataKey="totalValue"
+                  radius={[3, 3, 0, 0]}
+                  isAnimationActive={false}
+                  activeBar={false}
+                >
                     {extraChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
                     ))}
@@ -988,14 +987,13 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                         />
                       )
                     }}
-                    cursor={{ fill: 'transparent' }}
+                    cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }}
                   />
                   <Bar
                     dataKey="totalValue"
                     radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
-                    animationDuration={0}
-                    activeBar={ACTIVE_BAR_HOVER}
+                    activeBar={false}
                   >
                     {extraReferenceChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
@@ -1071,7 +1069,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                         </div>
                       )
                     }}
-                    cursor={{ fill: 'transparent' }}
+                    cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }}
                   />
                   <Line
                     type="monotone"
@@ -1154,7 +1152,7 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                         </div>
                       )
                     }}
-                    cursor={{ fill: 'transparent' }}
+                    cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }}
                   />
                   <Line
                     type="monotone"
@@ -1312,13 +1310,12 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     axisLine={{ stroke: '#475569' }}
                     tickCount={8}
                   />
-                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
+                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
                   <Bar
                     dataKey="totalValue"
                     radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
-                    animationDuration={0}
-                    activeBar={ACTIVE_BAR_HOVER}
+                    activeBar={false}
                   >
                     {dsrChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
@@ -1365,13 +1362,11 @@ const PayrollCostsPanel: React.FC<PayrollCostsPanelProps> = ({ supabaseKey, supa
                     axisLine={{ stroke: '#475569' }}
                     tickCount={8}
                   />
-                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'transparent' }} />
+                  <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
                   <Bar
                     dataKey="totalValue"
                     radius={[3, 3, 0, 0]}
                     isAnimationActive={false}
-                    animationDuration={0}
-                    activeBar={ACTIVE_BAR_HOVER}
                   >
                     {atestadosChartData.map((entry) => (
                       <Cell key={entry.label} fill={entry.color} />
