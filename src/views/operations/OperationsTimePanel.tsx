@@ -653,8 +653,34 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
   // Para gráficos usamos o mesmo conjunto dos totais (cumulativo 1..dia quando há dia).
   const rowsForCharts = hasTextFilter && totalHrs60 <= 0 && totalHrs100 <= 0 ? [] : rowsForTotals
   const aggregatedRowsForCharts = useMemo(() => aggregateRows(rowsForCharts, aggregationModeTotals), [rowsForCharts, aggregationModeTotals])
+  const aggregatedRowsForMonthly = useMemo(() => aggregateRows(rows, 'month'), [rows])
 
   const monthlyChartData = useMemo(() => {
+    if (aggregatedRowsForMonthly.length === 0) return []
+    const monthKeys = new Set<string>()
+    aggregatedRowsForMonthly.forEach((r) => {
+      const [year, month] = (r.date_ || '').split('-')
+      if (!year || !month) return
+      monthKeys.add(`${year}-${month}`)
+    })
+    if (monthKeys.size === 0) return []
+    const sortedKeys = Array.from(monthKeys).sort()
+    const latestKey = sortedKeys[sortedKeys.length - 1]
+    const [latestYearRaw, latestMonthRaw] = latestKey.split('-')
+    const latestYear = Number(latestYearRaw)
+    const latestMonth = Number(latestMonthRaw)
+    if (!latestYear || !latestMonth) return []
+
+    const lastSixKeys: string[] = []
+    const base = new Date(latestYear, latestMonth - 1, 1)
+    for (let i = 5; i >= 0; i -= 1) {
+      const d = new Date(base)
+      d.setMonth(base.getMonth() - i)
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      lastSixKeys.push(`${y}-${m}`)
+    }
+
     const byMonth = new Map<
       string,
       {
@@ -664,25 +690,26 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
         value100: number
       }
     >()
-    aggregatedRowsForCharts.forEach((r) => {
+    lastSixKeys.forEach((key) => {
+      byMonth.set(key, { hours60: 0, hours100: 0, value60: 0, value100: 0 })
+    })
+
+    aggregatedRowsForMonthly.forEach((r) => {
       const [year, month] = (r.date_ || '').split('-')
       if (!year || !month) return
       const key = `${year}-${month}`
-      const salary = Number((r as any).salary ?? 0)
+      const target = byMonth.get(key)
+      if (!target) return
+      const salary = Number(r.salary ?? 0)
       const hourly = salary ? salary / 220 : 0
-      const mins60Raw = r.mins505 + r.mins506 - r.mins511 - r.mins512
-      const mins60 = allowNegative60 ? mins60Raw : Math.max(mins60Raw, 0)
-      const mins100Raw = r.mins303 + r.mins304
-      const mins100 = allowNegative60 ? mins100Raw : Math.max(mins100Raw, 0)
+      const mins60 = Math.max(r.mins505 + r.mins506 - r.mins511 - r.mins512, 0)
+      const mins100 = Math.max(r.mins303 + r.mins304, 0)
       const value60 = hourly ? (mins60 / 60) * hourly * 1.6 : 0
       const value100 = hourly ? (mins100 / 60) * hourly * 2 : 0
-      const prev = byMonth.get(key) || { hours60: 0, hours100: 0, value60: 0, value100: 0 }
-      byMonth.set(key, {
-        hours60: prev.hours60 + mins60,
-        hours100: prev.hours100 + mins100,
-        value60: prev.value60 + value60,
-        value100: prev.value100 + value100,
-      })
+      target.hours60 += mins60
+      target.hours100 += mins100
+      target.value60 += value60
+      target.value100 += value100
     })
     const monthAbbr: Record<string, string> = {
       '01': 'JAN',
@@ -698,7 +725,8 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       '11': 'NOV',
       '12': 'DEZ',
     }
-    const arr = Array.from(byMonth.entries()).map(([key, data]) => {
+    const arr = lastSixKeys.map((key) => {
+      const data = byMonth.get(key) || { hours60: 0, hours100: 0, value60: 0, value100: 0 }
       const [, month] = key.split('-')
       return {
         key,
@@ -709,8 +737,8 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
         value100: data.value100,
       }
     })
-    return arr.sort((a, b) => a.key.localeCompare(b.key))
-  }, [aggregatedRowsForCharts, allowNegative60])
+    return arr.filter((item) => item.hours60 !== 0 || item.hours100 !== 0 || item.value60 !== 0 || item.value100 !== 0)
+  }, [aggregatedRowsForMonthly])
 
   const sectorChartData: SectorChartDatum[] = useMemo(() => {
     const bySector = new Map<
@@ -1093,7 +1121,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
         )}
         {isTableVisible ? (
           <div className="border border-emerald-400/40 rounded-lg bg-slate-900/60 shadow-lg shadow-emerald-500/10 h-[520px] overflow-hidden relative flex flex-col">
-            <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: 'stable both-edges' }}>
+            <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
               <table className={`w-full text-[11px] text-white/80 border-collapse table-fixed ${rows.length > 0 ? 'min-h-full' : ''}`}>
                 <colgroup>
                   <col className="w-[9%]" />
@@ -1174,25 +1202,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                   </tr>
                 </thead>
                 <tbody>{rowElements}</tbody>
-              </table>
-            </div>
-            <div className="bg-green-800 text-[11px] uppercase tracking-[0.2em] text-white/70 backdrop-blur">
-              <table className="w-full text-[11px] text-white/80 border-collapse table-fixed">
-                <colgroup>
-                  <col className="w-[9%]" />
-                  <col className="w-[5%]" />
-                  <col className="w-[20%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                </colgroup>
-                <tbody>
+                <tfoot className="bg-green-800 text-[11px] uppercase tracking-[0.2em] text-white/70 sticky bottom-0 z-10 backdrop-blur">
                   <tr>
                     <td className="py-2 text-center">-</td>
                     <td className="py-2 text-center">-</td>
@@ -1207,7 +1217,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                     <td className="py-2 text-xs text-center text-orange-500 font-semibold">{formatMinutes(totalHrs60)}</td>
                     <td className="py-2 text-xs text-center text-rose-500 font-semibold">{formatMinutes(totalHrs100)}</td>
                   </tr>
-                </tbody>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -1397,16 +1407,16 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
               <p className="text-xs text-white/60 mb-2">Horas 60% e 100%</p>
               <div className="h-72 rounded-lg border border-white/10 bg-white/5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                  <LineChart data={monthlyChartData} margin={{ top: 28, right: 36, left: 8, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                    <XAxis dataKey="label" tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} interval={0} height={80} />
+                    <XAxis dataKey="label" tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} interval={0} height={80} padding={{ left: 12, right: 12 }} />
                     <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
                     <Tooltip formatter={(val: any) => formatMinutes(Math.round(Number(val || 0) * 60))} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#e2e8f0' }} />
                     <Line type="monotone" dataKey="hours60" name="Horas 60%" stroke="#38bdf8" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false}>
-                      <LabelList dataKey="hours60" position="top" formatter={(v: any) => formatMinutes(Math.round(Number(v || 0) * 60))} fill="#e2e8f0" fontSize={10} />
+                      <LabelList dataKey="hours60" position="top" offset={14} formatter={(v: any) => formatMinutes(Math.round(Number(v || 0) * 60))} fill="#38bdf8" fontSize={10} />
                     </Line>
                     <Line type="monotone" dataKey="hours100" name="Horas 100%" stroke="#f43f5e" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false}>
-                      <LabelList dataKey="hours100" position="top" formatter={(v: any) => formatMinutes(Math.round(Number(v || 0) * 60))} fill="#e2e8f0" fontSize={10} />
+                      <LabelList dataKey="hours100" position="bottom" offset={-10} formatter={(v: any) => formatMinutes(Math.round(Number(v || 0) * 60))} fill="#f43f5e" fontSize={10} />
                     </Line>
                   </LineChart>
                 </ResponsiveContainer>
@@ -1416,16 +1426,16 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
               <p className="text-xs text-white/60 mb-2">Valores 60% e 100%</p>
               <div className="h-72 rounded-lg border border-white/10 bg-white/5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                  <LineChart data={monthlyChartData} margin={{ top: 28, right: 36, left: 8, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                    <XAxis dataKey="label" tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
+                    <XAxis dataKey="label" tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} padding={{ left: 12, right: 12 }} />
                     <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
                     <Tooltip formatter={(val: any) => formatCurrency(Number(val || 0))} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#e2e8f0' }} />
                     <Line type="monotone" dataKey="value60" name="Valor 60%" stroke="#38bdf8" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false}>
-                      <LabelList dataKey="value60" position="top" formatter={(v: any) => formatCurrency(Number(v || 0))} fill="#e2e8f0" fontSize={10} />
+                      <LabelList dataKey="value60" position="top" offset={14} formatter={(v: any) => formatCurrency(Number(v || 0))} fill="#38bdf8" fontSize={10} />
                     </Line>
                     <Line type="monotone" dataKey="value100" name="Valor 100%" stroke="#f43f5e" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false}>
-                      <LabelList dataKey="value100" position="top" formatter={(v: any) => formatCurrency(Number(v || 0))} fill="#e2e8f0" fontSize={10} />
+                      <LabelList dataKey="value100" position="bottom" offset={-10} formatter={(v: any) => formatCurrency(Number(v || 0))} fill="#f43f5e" fontSize={10} />
                     </Line>
                   </LineChart>
                 </ResponsiveContainer>
