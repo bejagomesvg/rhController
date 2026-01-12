@@ -70,6 +70,12 @@ const Dashboard: React.FC<DashboardProps> = ({
       description: 'Análise de desempenho individual',
       icon: <TrendingUp className="w-5 h-5 text-white" />,
       color: 'bg-gradient-to-br from-teal-400 to-emerald-600',
+      onClick: () =>
+        onOpenSecurity?.({
+          title: 'Avaliacao',
+          description: 'Análise de desempenho individual',
+          accent: 'evaluation',
+        }),
     },
     {
       key: 'communication' as const,
@@ -257,6 +263,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 }
 
 export default Dashboard
+
 
 
 
