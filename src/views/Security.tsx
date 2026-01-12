@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { toast, Toaster } from 'react-hot-toast'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,8 +14,10 @@ import {
   UserPlus,
   X,
 } from 'lucide-react'
-import { hashPasswordPBKDF2, updatePassword } from '../services/authService'
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
+import { hashPasswordPBKDF2, updatePassword, verifyPassword } from '../services/authService'
 import { loadSession } from '../services/sessionService'
+import { fetchEmployeeNameSuggestions, fetchEmployeeSectors } from '../services/employeeService'
 import { getFullModulesPayload, MODULE_MAPPING } from '../utils/moduleParser'
 import UserForm from '../components/UserForm'
 import type { NewUserData } from '../components/UserForm'
@@ -64,6 +67,13 @@ const Security: React.FC<SecurityProps> = ({
   const [confirmUser, setConfirmUser] = useState<UserRow | null>(null)
   const [isDeletingId, setIsDeletingId] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<UserRow | null>(null)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deletePasswordError, setDeletePasswordError] = useState<'required' | 'invalid' | null>(null)
+  const [deletePasswordAttempts, setDeletePasswordAttempts] = useState(0)
+  const [confirmStatusUser, setConfirmStatusUser] = useState<UserRow | null>(null)
+  const [statusPassword, setStatusPassword] = useState('')
+  const [statusPasswordError, setStatusPasswordError] = useState<'required' | 'invalid' | null>(null)
+  const [statusPasswordAttempts, setStatusPasswordAttempts] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [createFeedback, setCreateFeedback] = useState<string | null>(null)
   const [updateFeedback, setUpdateFeedback] = useState<string | null>(null)
@@ -71,8 +81,9 @@ const Security: React.FC<SecurityProps> = ({
   const [showViewEdit, setShowViewEdit] = useState(false)
   const [viewEditMode, setViewEditMode] = useState<'view' | 'edit'>('view')
   const [editingUserId, setEditingUserId] = useState<number | null>(null)
+  const [sectorOptions, setSectorOptions] = useState<string[]>([])
   const todayIso = useMemo(() => new Date().toISOString().split('T')[0], [])
-  // previously had sectorOptions / sectorSelection here — not used by this view anymore
+  // previously had sectorOptions / sectorSelection here - not used by this view anymore
   const [newUser, setNewUser] = useState({
     name: '',
     username: '',
@@ -114,6 +125,32 @@ const Security: React.FC<SecurityProps> = ({
   useEffect(() => {
     window.localStorage.setItem('rh_showCreate', showCreate.toString())
   }, [showCreate])
+
+  const fetchNameSuggestions = React.useCallback(
+    async (query: string) => {
+      const result = await fetchEmployeeNameSuggestions(supabaseUrl, supabaseKey, query, 5, 7)
+      if (!result.ok) {
+        console.error('Erro ao buscar nomes de funcionarios:', result.error)
+        return []
+      }
+      return result.suggestions
+    },
+    [supabaseKey, supabaseUrl],
+  )
+
+  useEffect(() => {
+    const fetchSectors = async () => {
+      if (!supabaseUrl || !supabaseKey) return
+      const result = await fetchEmployeeSectors(supabaseUrl, supabaseKey, 7)
+      if (!result.ok) {
+        console.error('Erro ao carregar setores:', result.error)
+        setSectorOptions([])
+        return
+      }
+      setSectorOptions(result.sectors)
+    }
+    fetchSectors()
+  }, [supabaseKey, supabaseUrl])
   useEffect(() => {
     const fetchUsers = async () => {
       if (!supabaseUrl || !supabaseKey) return
@@ -185,17 +222,18 @@ const Security: React.FC<SecurityProps> = ({
 
   const resetPassword = async (user: UserRow) => {
     if (!defaultPassword) {
-      alert('Senha padrao (VITE_SENHA_PADRAO) nao configurada.')
+      toast.error('Senha padrao (VITE_SENHA_PADRAO) nao configurada.')
       return
     }
     try {
       setIsResettingId(user.id)
       const hashed = defaultPassword.startsWith('pbkdf2:') ? defaultPassword : await hashPasswordPBKDF2(defaultPassword)
       await updatePassword(user.id, hashed)
+      toast.success('Senha redefinida com sucesso!')
       setConfirmUser(null)
     } catch (error) {
       console.error('Erro ao redefinir senha:', error)
-      alert('Nao foi possivel redefinir a senha.')
+      toast.error('Nao foi possivel redefinir a senha.')
     } finally {
       setIsResettingId(null)
     }
@@ -203,7 +241,7 @@ const Security: React.FC<SecurityProps> = ({
 
   const deleteUser = async (user: UserRow) => {
     if (!supabaseUrl || !supabaseKey) {
-      alert('Config da base ausente.')
+      toast.error('Config da base ausente.')
       return
     }
     try {
@@ -220,11 +258,101 @@ const Security: React.FC<SecurityProps> = ({
       if (!response.ok) throw new Error(`Supabase delete ${response.status}`)
       setUsersData((prev) => prev.filter((u) => u.id !== user.id))
       setConfirmDelete(null)
+      toast.success('Usuario excluido com sucesso!')
     } catch (error) {
       console.error('Erro ao deletar usuario:', error)
-      alert('Nao foi possivel deletar o usuario.')
+      toast.error('Nao foi possivel deletar o usuario.')
     } finally {
       setIsDeletingId(null)
+    }
+  }
+
+  const openDeleteConfirm = (user: UserRow) => {
+    setConfirmDelete(user)
+    setDeletePassword('')
+    setDeletePasswordError(null)
+    setDeletePasswordAttempts(0)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return
+    if (!deletePassword.trim()) {
+      setDeletePasswordError('required')
+      setDeletePasswordAttempts((prev) => prev + 1)
+      return
+    }
+    if (!sessionUser?.password) {
+      toast.error('Senha da sessao indisponivel.')
+      return
+    }
+    const ok = await verifyPassword(deletePassword, sessionUser.password)
+    if (!ok) {
+      setDeletePasswordError('invalid')
+      setDeletePasswordAttempts((prev) => prev + 1)
+      return
+    }
+    await deleteUser(confirmDelete)
+    setDeletePassword('')
+    setDeletePasswordError(null)
+    setDeletePasswordAttempts(0)
+  }
+
+  const openStatusConfirm = (user: UserRow) => {
+    if (!canUpdate) return
+    setConfirmStatusUser(user)
+    setStatusPassword('')
+    setStatusPasswordError(null)
+    setStatusPasswordAttempts(0)
+  }
+
+  const handleToggleStatus = async () => {
+    if (!confirmStatusUser) return
+    if (!statusPassword.trim()) {
+      setStatusPasswordError('required')
+      setStatusPasswordAttempts((prev) => prev + 1)
+      return
+    }
+    if (!sessionUser?.password) {
+      toast.error('Senha da sessao indisponivel.')
+      return
+    }
+    const ok = await verifyPassword(statusPassword, sessionUser.password)
+    if (!ok) {
+      setStatusPasswordError('invalid')
+      setStatusPasswordAttempts((prev) => prev + 1)
+      return
+    }
+    if (!supabaseUrl || !supabaseKey) {
+      toast.error('Config da base ausente.')
+      return
+    }
+    try {
+      const nextStatus = !confirmStatusUser.is_authorized
+      const updateUrl = new URL(`${supabaseUrl}/rest/v1/user_registration`)
+      updateUrl.searchParams.set('id', `eq.${confirmStatusUser.id}`)
+      const response = await fetch(updateUrl.toString(), {
+        method: 'PATCH',
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({ is_authorized: nextStatus }),
+      })
+      if (!response.ok) throw new Error(`Supabase update ${response.status}`)
+      const [updated] = (await response.json()) as UserRow[]
+      setUsersData((prev) =>
+        prev.map((u) => (u.id === updated.id ? { ...u, is_authorized: updated.is_authorized } : u)),
+      )
+      toast.success('Status atualizado com sucesso!')
+      setConfirmStatusUser(null)
+      setStatusPassword('')
+      setStatusPasswordError(null)
+      setStatusPasswordAttempts(0)
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error)
+      toast.error('Nao foi possivel atualizar o status.')
     }
   }
 
@@ -306,30 +434,30 @@ const Security: React.FC<SecurityProps> = ({
     
     // Validação de campos obrigatórios
     if (!editingUser.name?.trim()) {
-      alert('NOME COMPLETO é obrigatório.')
+      toast.error('NOME COMPLETO eh obrigatorio.')
       return
     }
     if (!editingUser.job_title?.trim()) {
-      alert('CARGO é obrigatório.')
+      toast.error('CARGO eh obrigatorio.')
       return
     }
     if (!editingUser.type_user?.trim()) {
-      alert('PERFIL é obrigatório.')
+      toast.error('PERFIL eh obrigatorio.')
       return
     }
     if (!editingUser.authorizedSector?.trim()) {
-      alert('SETOR AUTORIZADO é obrigatório.')
+      toast.error('SETOR AUTORIZADO eh obrigatorio.')
       return
     }
     if (!editingUser.authorizedModules?.trim()) {
-      alert('MODULOS AUTORIZADOS é obrigatório.')
+      toast.error('MODULOS AUTORIZADOS eh obrigatorio.')
       return
     }
     
     try {
       setIsCreating(true)
       setUpdateFeedback(null)
-      // Processa os módulos autorizados para o formato do banco (preenche null quando removidos)
+      // Processa os modulos autorizados para o formato do banco (preenche null quando removidos)
       const modulesData = getFullModulesPayload(editingUser.authorizedModules)
       
       const payload = {
@@ -370,9 +498,12 @@ const Security: React.FC<SecurityProps> = ({
       setShowViewEdit(false)
       setEditingUserId(null)
       setUpdateFeedback(null)
-    } catch (error) {
+      toast.success('Usuario atualizado com sucesso!')
+    }
+    catch (error) {
       console.error('Erro ao atualizar usuario:', error)
-      setUpdateFeedback('⚠ Usuário não disponivel')
+      setUpdateFeedback('? Usuario nao disponivel')
+      toast.error('Nao foi possivel atualizar o usuario.')
     } finally {
       setIsCreating(false)
     }
@@ -382,43 +513,53 @@ const Security: React.FC<SecurityProps> = ({
     event.preventDefault()
     setCreateFeedback(null)
     if (!supabaseUrl || !supabaseKey) {
-      setCreateFeedback('Configuração do banco ausente.')
+      setCreateFeedback('Configuracao do banco ausente.')
+      toast.error('Configuracao do banco ausente.')
       return
     }
     if (!newUser.name || !newUser.username) {
       setCreateFeedback('Preencha nome e usuario.')
+      toast.error('Preencha nome e usuario.')
       return
     }
     if (!newUser.name?.trim()) {
-      setCreateFeedback('NOME COMPLETO é obrigatório.')
+      setCreateFeedback('NOME COMPLETO eh obrigatorio.')
+      toast.error('NOME COMPLETO eh obrigatorio.')
       return
     }
     if (!newUser.username?.trim()) {
-      setCreateFeedback('USUARIO é obrigatório.')
+      setCreateFeedback('USUARIO eh obrigatorio.')
+      toast.error('USUARIO eh obrigatorio.')
       return
     }
     if (!newUser.job_title?.trim()) {
-      setCreateFeedback('CARGO é obrigatório.')
+      setCreateFeedback('CARGO eh obrigatorio.')
+      toast.error('CARGO eh obrigatorio.')
       return
     }
     if (!newUser.type_user?.trim()) {
-      setCreateFeedback('PERFIL é obrigatório.')
+      setCreateFeedback('PERFIL eh obrigatorio.')
+      toast.error('PERFIL eh obrigatorio.')
       return
     }
     if (!newUser.authorizedSector?.trim()) {
-      setCreateFeedback('SETOR AUTORIZADO é obrigatório.')
+      setCreateFeedback('SETOR AUTORIZADO eh obrigatorio.')
+      toast.error('SETOR AUTORIZADO eh obrigatorio.')
       return
     }
     if (!newUser.authorizedModules?.trim()) {
-      setCreateFeedback('MODULOS AUTORIZADOS é obrigatório.')
+      setCreateFeedback('MODULOS AUTORIZADOS eh obrigatorio.')
+      toast.error('MODULOS AUTORIZADOS eh obrigatorio.')
       return
     }
     if (newUser.username.includes(' ')) {
-      setCreateFeedback('Username não pode conter espaços. Use apenas letras, números e caracteres especiais como _ ou -')
+      setCreateFeedback('Username nao pode conter espacos.')
+      toast.error('Username nao pode conter espacos.')
       return
     }
     if (!defaultPassword) {
       setCreateFeedback('Senha padrao (VITE_SENHA_PADRAO) nao configurada.')
+      toast.error('Senha padrao (VITE_SENHA_PADRAO) nao configurada.')
       return
     }
     try {
@@ -429,7 +570,7 @@ const Security: React.FC<SecurityProps> = ({
         : await hashPasswordPBKDF2(defaultPassword)
       const insertUrl = new URL(`${supabaseUrl}/rest/v1/user_registration`)
       
-      // Processa os módulos autorizados para o formato do banco (preenche null quando removidos)
+      // Processa os modulos autorizados para o formato do banco (preenche null quando removidos)
       const modulesData = getFullModulesPayload(newUser.authorizedModules)
       
       const payload = {
@@ -474,9 +615,11 @@ const Security: React.FC<SecurityProps> = ({
       })
       // reset of local sectorSelection no longer needed
       window.localStorage.removeItem('rh_showCreate')
+      toast.success('Usuario criado com sucesso!')
     } catch (error) {
       console.error('Erro ao criar usuario:', error)
-      setCreateFeedback('⚠ Usuário não disponivel')
+      setCreateFeedback('? Usuario nao disponivel')
+      toast.error('Nao foi possivel criar o usuario.')
     } finally {
       setIsCreating(false)
     }
@@ -484,6 +627,14 @@ const Security: React.FC<SecurityProps> = ({
 
   return (
     <div className="space-y-6">
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          className: 'bg-slate-800 text-white border border-white/10 shadow-lg',
+          success: { iconTheme: { primary: '#22c55e', secondary: 'white' } },
+          error: { iconTheme: { primary: '#f43f5e', secondary: 'white' } },
+        }}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-white text-2xl font-bold leading-tight">{title}</h2>
@@ -569,6 +720,9 @@ const Security: React.FC<SecurityProps> = ({
                 setNewUser={setEditingUser}
                 isCreating={isCreating}
                 createFeedback={updateFeedback}
+                availableSectors={sectorOptions}
+                fetchNameSuggestions={fetchNameSuggestions}
+                lockUsername={viewEditMode === 'edit'}
                 onCancel={() => {
                   setShowViewEdit(false)
                   setUpdateFeedback(null)
@@ -581,43 +735,62 @@ const Security: React.FC<SecurityProps> = ({
         </div>
       )}
 
-      {confirmDelete && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4">
-          <div className="relative w-full max-w-xl bg-[#0d1425] border border-white/10 rounded-2xl shadow-[0_25px_80px_-20px_rgba(0,0,0,0.8)] overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-white/05 via-emerald-400/5 to-transparent pointer-events-none" />
-            <div className="relative p-6 space-y-5">
-              <div className="flex items-start gap-4">
-                <div className="w-14 h-14 rounded-full bg-rose-500/15 border border-rose-400/60 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-8 h-8 text-rose-400" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-white text-xl font-semibold">Excluir usuario</h3>
-                  <p className="text-white/70 text-sm mt-1 leading-relaxed">
-                    Confirmar exclusao de <span className="text-white font-semibold">{confirmDelete.name}</span>?
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  className="px-5 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white hover:bg-white/10 transition-colors"
-                  onClick={() => setConfirmDelete(null)}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="px-5 py-2.5 rounded-lg bg-rose-500 text-white font-semibold hover:bg-rose-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  onClick={() => confirmDelete && deleteUser(confirmDelete)}
-                  disabled={isDeletingId === confirmDelete.id}
-                >
-                  {isDeletingId === confirmDelete.id ? 'Excluindo...' : 'Excluir'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDeleteModal
+        open={Boolean(confirmDelete)}
+        title="Excluir usuario"
+        description={
+          <p>
+            Confirmar exclusao de <span className="text-white font-semibold">{confirmDelete?.name}</span>?
+          </p>
+        }
+        passwordLabel="Confirmar com senha"
+        passwordValue={deletePassword}
+        passwordError={deletePasswordError}
+        attempts={deletePasswordAttempts}
+        onPasswordChange={(value) => {
+          setDeletePassword(value)
+          if (deletePasswordError) setDeletePasswordError(null)
+        }}
+        onCancel={() => {
+          setConfirmDelete(null)
+          setDeletePassword('')
+          setDeletePasswordError(null)
+          setDeletePasswordAttempts(0)
+        }}
+        onConfirm={handleConfirmDelete}
+        confirmLabel={isDeletingId ? 'Excluindo...' : 'Excluir'}
+      />
+
+      <ConfirmDeleteModal
+        open={Boolean(confirmStatusUser)}
+        title="Alterar status do usuario"
+        description={
+          <p>
+            Confirmar a alteracao de status de <span className="text-white font-semibold">{confirmStatusUser?.name}</span>{' '}
+            para{' '}
+            <span className="text-white font-semibold">
+              {confirmStatusUser?.is_authorized ? 'Inativo' : 'Ativo'}
+            </span>
+            ?
+          </p>
+        }
+        passwordLabel="Confirmar com senha"
+        passwordValue={statusPassword}
+        passwordError={statusPasswordError}
+        attempts={statusPasswordAttempts}
+        onPasswordChange={(value) => {
+          setStatusPassword(value)
+          if (statusPasswordError) setStatusPasswordError(null)
+        }}
+        onCancel={() => {
+          setConfirmStatusUser(null)
+          setStatusPassword('')
+          setStatusPasswordError(null)
+          setStatusPasswordAttempts(0)
+        }}
+        onConfirm={handleToggleStatus}
+        confirmLabel="Confirmar"
+      />
 
       <div className="space-y-3">
         {!showCreate && (
@@ -735,7 +908,9 @@ const Security: React.FC<SecurityProps> = ({
                         <span
                           className={`text-xs font-semibold ${
                             user.is_authorized ? 'text-emerald-300' : 'text-rose-300'
-                          }`}
+                          } ${canUpdate ? 'cursor-pointer' : ''}`}
+                          title={canUpdate ? 'Duplo clique para alterar status' : undefined}
+                          onDoubleClick={() => openStatusConfirm(user)}
                         >
                           {user.is_authorized ? 'Ativo' : 'Inativo'}
                         </span>
@@ -770,7 +945,7 @@ const Security: React.FC<SecurityProps> = ({
                             <button
                               className="p-1 rounded hover:bg-white/10 transition-colors"
                               title="Excluir"
-                              onClick={() => setConfirmDelete(user)}
+                              onClick={() => openDeleteConfirm(user)}
                               disabled={isDeletingId === user.id}
                             >
                               <Trash2 className="w-5 h-5 text-red-400" />
@@ -822,6 +997,8 @@ const Security: React.FC<SecurityProps> = ({
                 setNewUser={setNewUser}
                 isCreating={isCreating}
                 createFeedback={createFeedback}
+                availableSectors={sectorOptions}
+                fetchNameSuggestions={fetchNameSuggestions}
                 onCancel={() => {
                   setShowCreate(false)
                   setCreateFeedback(null)
@@ -839,6 +1016,21 @@ const Security: React.FC<SecurityProps> = ({
 }
 
 export default Security
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

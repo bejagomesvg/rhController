@@ -179,6 +179,105 @@ export const fetchEmployeeRegistrations = async (
   }
 }
 
+export const fetchEmployeeSectors = async (
+  supabaseUrl?: string,
+  supabaseKey?: string,
+  excludedStatus: number = 7
+): Promise<{ ok: boolean; sectors: string[]; error?: string }> => {
+  if (!supabaseUrl || !supabaseKey) {
+    return { ok: false, sectors: [], error: 'Missing Supabase credentials' }
+  }
+  try {
+    const url = new URL(`${supabaseUrl}/rest/v1/employee`)
+    url.searchParams.set('select', 'sector')
+    url.searchParams.set('status', `neq.${excludedStatus}`)
+    url.searchParams.set('order', 'sector.asc')
+
+    const pageSize = 1000
+    let start = 0
+    const sectorSet = new Set<string>()
+
+    while (true) {
+      const rangeHeader = `${start}-${start + pageSize - 1}`
+      const res = await fetch(url.toString(), {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Range: rangeHeader,
+        },
+      })
+      if (!res.ok) {
+        return { ok: false, sectors: [], error: await res.text() }
+      }
+      const rows = (await res.json()) as Array<{ sector: string | null }>
+      rows.forEach((r) => {
+        const sector = r.sector ? String(r.sector).trim() : ''
+        if (sector) sectorSet.add(sector)
+      })
+      const contentRange = res.headers.get('content-range')
+      const total = contentRange ? Number(contentRange.split('/')[1] || 0) : rows.length
+      if (start + pageSize >= total || rows.length < pageSize) break
+      start += pageSize
+    }
+
+    return { ok: true, sectors: Array.from(sectorSet).sort((a, b) => a.localeCompare(b)) }
+  } catch (error) {
+    return { ok: false, sectors: [], error: (error as Error).message }
+  }
+}
+
+export type EmployeeNameSuggestion = {
+  name: string
+  role: string | null
+  sector: string | null
+}
+
+export const fetchEmployeeNameSuggestions = async (
+  supabaseUrl?: string,
+  supabaseKey?: string,
+  query?: string,
+  limit: number = 5,
+  excludedStatus: number = 7
+): Promise<{ ok: boolean; suggestions: EmployeeNameSuggestion[]; error?: string }> => {
+  if (!supabaseUrl || !supabaseKey) {
+    return { ok: false, suggestions: [], error: 'Missing Supabase credentials' }
+  }
+  const trimmed = String(query || '').trim()
+  if (trimmed.length < 1) {
+    return { ok: true, suggestions: [] }
+  }
+  try {
+    const url = new URL(`${supabaseUrl}/rest/v1/employee`)
+    url.searchParams.set('select', 'name,role,sector')
+    url.searchParams.set('status', `neq.${excludedStatus}`)
+    url.searchParams.set('name', `ilike.*${trimmed}*`)
+    url.searchParams.set('order', 'name.asc')
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        Range: `0-${Math.max(0, limit - 1)}`,
+      },
+    })
+    if (!res.ok) {
+      return { ok: false, suggestions: [], error: await res.text() }
+    }
+    const rows = (await res.json()) as Array<{ name: string | null; role: string | null; sector: string | null }>
+    const suggestions = rows
+      .map((r) => ({
+        name: r.name ? String(r.name).trim() : '',
+        role: r.role ? String(r.role).trim() : null,
+        sector: r.sector ? String(r.sector).trim() : null,
+      }))
+      .filter((r) => Boolean(r.name))
+      .slice(0, limit)
+    return { ok: true, suggestions }
+  } catch (error) {
+    return { ok: false, suggestions: [], error: (error as Error).message }
+  }
+}
+
 export const fetchEmployeeCompanies = async (
   supabaseUrl?: string,
   supabaseKey?: string

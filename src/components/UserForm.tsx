@@ -1,6 +1,22 @@
-import React, { useState } from 'react'
-import { CalendarX2, ChevronsRight, Clock10, Edit, Eye, Factory, RotateCcwKey, Settings, Trash2, UserPlus, X } from 'lucide-react'
+import React, { useRef, useState } from 'react'
+import {
+  CalendarDays,
+  CalendarX2,
+  ChevronsRight,
+  Clock10,
+  DollarSign,
+  Edit,
+  Eye,
+  Factory,
+  FileText,
+  RotateCcwKey,
+  Settings,
+  Trash2,
+  UserPlus,
+  X,
+} from 'lucide-react'
 import { MODULE_LABELS } from '../utils/moduleParser'
+import type { EmployeeNameSuggestion } from '../services/employeeService'
 
 export type NewUserData = {
   name: string
@@ -24,31 +40,10 @@ interface Props {
   onCancel: () => void
   onSubmit: (e: React.FormEvent) => void
   readonly?: boolean
+  availableSectors?: string[]
+  fetchNameSuggestions?: (query: string) => Promise<EmployeeNameSuggestion[]>
+  lockUsername?: boolean
 }
-
-const AVAILABLE_SECTORS = [
-  'ADMINISTRAÇÃO',
-  'ALMOXARIFADO',
-  'ATENDIMENTO AO CLIENTE',
-  'COMERCIAL',
-  'COMPRAS',
-  'CONTABILIDADE',
-  'DIRETORIA',
-  'EXPEDIÇÃO',
-  'FINANCEIRO',
-  'FISCAL',
-  'INOVAÇÃO E P&D',
-  'JURÍDICO',
-  'LOGÍSTICA',
-  'MANUTENÇÃO',
-  'MARKETING',
-  'PLANEJAMENTO',
-  'QUALIDADE',
-  'RECURSOS HUMANOS (RH)',
-  'SEGURANÇA DO TRABALHO',
-  'TI',
-  'VENDAS',
-]
 
 const AVAILABLE_MODULES = MODULE_LABELS
 
@@ -61,10 +56,14 @@ type PermissionKey =
   | 'falta'
   | 'time'
   | 'producao'
+  | 'folha'
+  | 'custos'
+  | 'afastamentos'
   | 'config'
 
 const BASE_PERMISSIONS: PermissionKey[] = ['creater', 'read', 'update', 'delete', 'password']
 const OPERATIONS_PERMISSIONS: PermissionKey[] = ['falta', 'time', 'producao', 'config']
+const PAYROLL_PERMISSIONS: PermissionKey[] = ['folha', 'custos', 'afastamentos', 'config']
 
 const INITIAL_PERMISSIONS: Record<PermissionKey, boolean> = {
   creater: false,
@@ -75,13 +74,33 @@ const INITIAL_PERMISSIONS: Record<PermissionKey, boolean> = {
   falta: false,
   time: false,
   producao: false,
+  folha: false,
+  custos: false,
+  afastamentos: false,
   config: false,
 }
 
-export default function UserForm({ newUser, setNewUser, isCreating, createFeedback, onCancel, onSubmit, readonly = false }: Props) {
+export default function UserForm({
+  newUser,
+  setNewUser,
+  isCreating,
+  createFeedback,
+  onCancel,
+  onSubmit,
+  readonly = false,
+  availableSectors = [],
+  fetchNameSuggestions,
+  lockUsername = false,
+}: Props) {
+  const usernameInputRef = useRef<HTMLInputElement | null>(null)
+  const profileSelectRef = useRef<HTMLSelectElement | null>(null)
+  const suppressNextNameSuggestionsRef = useRef(false)
   const [permissoes, setPermissoes] = useState(INITIAL_PERMISSIONS)
   const [sectorSelection, setSectorSelection] = useState('')
   const [usernameError, setUsernameError] = useState('')
+  const [nameSuggestions, setNameSuggestions] = useState<EmployeeNameSuggestion[]>([])
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false)
+  const [isNameFocused, setIsNameFocused] = useState(false)
   const [validationErrors, setValidationErrors] = useState({
     name: false,
     username: false,
@@ -103,6 +122,67 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
     
     // Remover espaços ao salvar
     setNewUser((p) => ({ ...p, username: upperValue.replace(/\s/g, '') }))
+  }
+
+  const handleNameChange = (value: string) => {
+    setNewUser((p) => ({ ...p, name: value.toUpperCase() }))
+    if (!value || value.trim().length < 4) {
+      setNameSuggestions([])
+      setShowNameSuggestions(false)
+    }
+  }
+
+  React.useEffect(() => {
+    if (readonly || !fetchNameSuggestions) return
+    if (suppressNextNameSuggestionsRef.current) {
+      suppressNextNameSuggestionsRef.current = false
+      return
+    }
+    const query = (newUser.name || '').trim()
+    if (query.length < 4) return
+
+    let isActive = true
+    const timer = setTimeout(async () => {
+      const results = await fetchNameSuggestions(query)
+      if (!isActive) return
+      setNameSuggestions(results)
+      setShowNameSuggestions(isNameFocused && results.length > 0)
+    }, 250)
+
+    return () => {
+      isActive = false
+      clearTimeout(timer)
+    }
+  }, [fetchNameSuggestions, newUser.name, readonly])
+
+  const handleSelectName = (suggestion: EmployeeNameSuggestion) => {
+    setNewUser((p) => ({
+      ...p,
+      name: suggestion.name.toUpperCase(),
+      job_title: suggestion.role ? suggestion.role.toUpperCase() : p.job_title,
+      authorizedSector: suggestion.sector ? suggestion.sector.toUpperCase() : p.authorizedSector,
+    }))
+    setNameSuggestions([])
+    setShowNameSuggestions(false)
+    suppressNextNameSuggestionsRef.current = true
+    requestAnimationFrame(() => {
+      if (lockUsername) {
+        profileSelectRef.current?.focus()
+      } else {
+        usernameInputRef.current?.focus()
+      }
+    })
+  }
+
+  const handleNameBlur = () => {
+    setIsNameFocused(false)
+    setShowNameSuggestions(false)
+  }
+
+  const handleNameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setShowNameSuggestions(false)
+    }
   }
 
   const clearFieldError = (field: keyof typeof validationErrors) => {
@@ -143,7 +223,7 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
 
   const getFilteredSectors = () => {
     const current = getSectorsArray()
-    return AVAILABLE_SECTORS.filter((s) => !current.includes(s))
+    return availableSectors.filter((s) => !current.includes(s))
   }
 
   const getFilteredModules = () => {
@@ -178,9 +258,13 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
 
   const getPermissionKeysForModule = () => {
     const isOperationsModule = newUser.modules === 'OPERACOES' || newUser.modules === 'OPERACAO'
+    const isPayrollModule = newUser.modules === 'FOLHA DE PAGAMENTO'
     const base = BASE_PERMISSIONS.filter((k) => (k === 'password' ? newUser.modules === 'SEGURANCA' : true))
     if (isOperationsModule) {
       return [...base, ...OPERATIONS_PERMISSIONS]
+    }
+    if (isPayrollModule) {
+      return [...base, ...PAYROLL_PERMISSIONS]
     }
     return base
   }
@@ -225,20 +309,46 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
   }
 
   return (
-    <form className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-6 mt-2" onSubmit={handleFormSubmit}>
+    <form
+      className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-6 mt-2"
+      onSubmit={handleFormSubmit}
+      autoComplete="off"
+    >
       {/* Row 1 - Nome / Usuario */}
-      <div className="col-span-12 md:col-span-8">
+      <div className="col-span-12 md:col-span-8 relative">
           <label className="block text-[10px] text-white/70 mb-1 tracking-[0.18em]">Nome completo</label>
         <input
           type="text"
           name="name"
           placeholder="Entre com o nome completo"
           value={newUser.name}
-          onChange={(e) => !readonly && setNewUser((p) => ({ ...p, name: e.target.value.toUpperCase() }))}
+          onChange={(e) => !readonly && handleNameChange(e.target.value)}
           className={getInputClasses(validationErrors.name)}
           readOnly={readonly}
-          onFocus={() => clearFieldError('name')}
+          onFocus={() => {
+            setIsNameFocused(true)
+            clearFieldError('name')
+          }}
+          onBlur={handleNameBlur}
+          onKeyDown={handleNameKeyDown}
+          autoComplete="off"
         />
+        {!readonly && showNameSuggestions && nameSuggestions.length > 0 && (
+          <div className="absolute z-20 w-full mt-1 bg-[#202422] border border-white/10 rounded-lg shadow-lg max-h-44 overflow-y-auto">
+            {nameSuggestions.slice(0, 5).map((item) => (
+              <button
+                key={item.name}
+                type="button"
+                className="w-full text-left px-3 py-2 text-xs text-white/90 hover:bg-white/10 transition-colors"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => handleSelectName(item)}
+              >
+                <span className="block text-[12px] text-white/95">{item.name}</span>
+                {item.role && <span className="block text-[10px] text-white/60">{item.role}</span>}
+              </button>
+            ))}
+          </div>
+        )}
         {validationErrors.name && <span className="text-orange-400 text-xs mt-1 block">⚠ Preencha este campo.</span>}
       </div>
 
@@ -250,9 +360,10 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
           placeholder="Nome de Usuário"
           value={newUser.username}
           onChange={(e) => !readonly && handleUsernameChange(e.target.value)}
-          className={getInputClasses(validationErrors.username || !!usernameError)}
-          readOnly={readonly}
+          className={getInputClasses(validationErrors.username || !!usernameError, readonly || lockUsername)}
+          readOnly={readonly || lockUsername}
           onFocus={() => clearFieldError('username')}
+          ref={usernameInputRef}
         />
         {validationErrors.username && !usernameError && <span className="text-orange-400 text-xs mt-1 block">⚠ Preencha este campo.</span>}
         {usernameError && <span className="text-red-300 text-xs mt-1 block">{usernameError}</span>}
@@ -282,6 +393,7 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
           className={getInputClasses(validationErrors.type_user)}
           disabled={readonly}
           onFocus={() => clearFieldError('type_user')}
+          ref={profileSelectRef}
         >
           <option value="" className="bg-[#202422] text-white border-0 outline-none">--</option>
           <option value="USUARIO" className="bg-[#202422] text-white border-0 outline-none">USUARIO</option>
@@ -392,6 +504,12 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
                         ? 'bg-cyan-600/10 border border-cyan-500/80 ring-2 ring-cyan-300/50'
                         : key === 'producao'
                         ? 'bg-amber-600/10 border border-amber-500/80 ring-2 ring-amber-300/50'
+                        : key === 'folha'
+                        ? 'bg-emerald-600/10 border border-emerald-500/80 ring-2 ring-emerald-300/50'
+                        : key === 'custos'
+                        ? 'bg-amber-600/10 border border-amber-500/80 ring-2 ring-amber-300/50'
+                        : key === 'afastamentos'
+                        ? 'bg-sky-600/10 border border-sky-500/80 ring-2 ring-sky-300/50'
                         : key === 'config'
                         ? 'bg-indigo-600/10 border border-indigo-500/80 ring-2 ring-indigo-300/50'
                         : '')
@@ -406,6 +524,9 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
                   {key === 'falta' ? <CalendarX2 size={22} className={permissoes[key] ? 'text-rose-400' : 'text-gray-500'} /> : null}
                   {key === 'time' ? <Clock10 size={22} className={permissoes[key] ? 'text-cyan-400' : 'text-gray-500'} /> : null}
                   {key === 'producao' ? <Factory size={22} className={permissoes[key] ? 'text-amber-400' : 'text-gray-500'} /> : null}
+                  {key === 'folha' ? <FileText size={22} className={permissoes[key] ? 'text-emerald-400' : 'text-gray-500'} /> : null}
+                  {key === 'custos' ? <DollarSign size={22} className={permissoes[key] ? 'text-amber-400' : 'text-gray-500'} /> : null}
+                  {key === 'afastamentos' ? <CalendarDays size={22} className={permissoes[key] ? 'text-sky-400' : 'text-gray-500'} /> : null}
                   {key === 'config' ? <Settings size={22} className={permissoes[key] ? 'text-indigo-400' : 'text-gray-500'} /> : null}
                 </div>
               </label>
@@ -480,4 +601,5 @@ export default function UserForm({ newUser, setNewUser, isCreating, createFeedba
     </form>
   )
 }
+
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+﻿import React, { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import {
   AlertTriangle,
@@ -40,6 +40,7 @@ import Security from './views/Security'
 import TableLoad from './views/Table_load'
 import Operations from './views/Operations'
 import Payroll from './views/Payroll'
+import Evaluation from './views/evaluation'
 
 type Mode = 'login' | 'set-password' | 'dashboard' | 'security'
 
@@ -641,6 +642,14 @@ export function App(): ReactElement {
                     description={securityCard?.description}
                     supabaseUrl={supabaseUrl}
                     supabaseKey={supabaseKey}
+                  />
+                ) : securityCard?.accent === 'evaluation' ? (
+                  <Evaluation
+                    onBack={() => setMode('dashboard')}
+                    userName={currentUser?.name || currentUser?.username || 'Usuario'}
+                    userRole={currentUser?.type_user || 'Perfil nao informado'}
+                    title={securityCard?.title}
+                    description={securityCard?.description}
                   />
                 ) : securityCard?.accent === 'operations' ? (
                   <Operations
