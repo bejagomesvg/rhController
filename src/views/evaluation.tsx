@@ -269,7 +269,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
         </div>
 
         <div className="flex-1 bg-white/5 border border-white/10 rounded-r-xl rounded-bl-xl rounded-tl-none p-4 shadow-inner shadow-black/10 min-h-[540px]">
-          <div className="bg-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-inner shadow-black/10 mb-4">
+          <div className="bg-white/5 border border-white/10 rounded-lg p-3 shadow-inner shadow-black/10 mb-4">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2 text-emerald-200 font-semibold uppercase">
                 <ActiveIcon className="w-6 h-6 text-amber-300" />
@@ -282,7 +282,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
                 </div>
                 <select
                   defaultValue="pantaneira"
-                  className="bg-slate-900/70 text-emerald-300 text-[11px] border border-emerald-400/40 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                  className="w-28 bg-white/5 text-emerald-200 text-sm border border-white/15 rounded-md px-3 py-2 outline-none focus:border-emerald-400/70 focus:ring-1 focus:ring-emerald-400/40 transition"
                 >
                   <option value="pantaneira" className="bg-[#1f2c4d] text-emerald-300">
                     Pantaneira
@@ -293,7 +293,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
                 </select>
                 <select
                   defaultValue="setor"
-                  className="bg-slate-900/70 text-emerald-300 text-[11px] border border-emerald-400/40 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+                  className="w-40 bg-white/5 text-emerald-200 text-sm border border-white/15 rounded-md px-3 py-2 outline-none focus:border-emerald-400/70 focus:ring-1 focus:ring-emerald-400/40 transition"
                 >
                   <option value="setor" className="bg-[#1f2c4d] text-emerald-300">
                     Setor
@@ -317,7 +317,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
           </div>
           {active === 'experience' ? (
             <div className="space-y-3">
-              <div className="border border-emerald-400/40 rounded-lg bg-slate-900/60 shadow-lg shadow-emerald-500/10 p-3">
+              <div className="border border-emerald-400/40 rounded-lg bg-white/5 shadow-lg shadow-emerald-500/10 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative w-56">
                     <input
@@ -358,7 +358,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
                 {isEmployeeTableVisible && (
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full text-[11px] text-white/80 border-collapse">
-                      <thead className="bg-green-800 text-[11px] uppercase tracking-[0.2em] text-white/70">
+                      <thead className="bg-amber-400/80 text-[11px] uppercase tracking-[0.2em] text-amber-900">
                         <tr>
                           <th className="py-2 px-2 text-left">NOME</th>
                           <th className="py-2 px-2 text-left">CPF</th>
@@ -386,10 +386,10 @@ const Evaluation: React.FC<EvaluationProps> = ({
                   </div>
                 )}
               </div>
-              <div className="rounded-lg border border-emerald-400/40 bg-slate-900/60 p-2">
+              <div className="border border-emerald-400/40 rounded-lg bg-white/5 shadow-lg shadow-emerald-500/10 p-2">
                 <div className="grid grid-cols-1 lg:grid-cols-[120px_1fr_150px_310px] gap-2 items-stretch justify-items-center lg:justify-items-stretch">
-                  <div className="bg-slate-900/80 rounded-md border border-emerald-400/40 p-1 w-28 h-36 flex items-center justify-center shadow-inner">
-                    <div className="h-full w-full border border-emerald-500/70" />
+                  <div className="rounded-md border border-emerald-400/40 p-1 w-28 h-36 flex items-center justify-center shadow-inner">
+                    <div className="h-full w-full bg-emerald-600/10 border border-emerald-500/70" />
                   </div>
 
                   <div className="flex flex-col justify-between gap-4">
@@ -409,22 +409,22 @@ const Evaluation: React.FC<EvaluationProps> = ({
                     </div>
                   </div>
 
-                  <div className="bg-emerald-600/70 border border-emerald-400/60 rounded-md flex flex-col items-center justify-center text-white shadow-lg">
+                  <div className="bg-emerald-600/10 border border-emerald-400/60 rounded-md flex flex-col items-center justify-center text-white shadow-lg">
                     <p className="text-5xl font-semibold">{experienceEmployee.scoreLabel}</p>
                     <p className="text-[11px] mt-3 uppercase tracking-widest text-white/90">Avaliacao do</p>
                     <p className="text-[11px] uppercase tracking-widest text-white/90">Funcionario</p>
                   </div>
-                  <div className="bg-slate-900/80 rounded-md border border-emerald-400/40 overflow-hidden">
-                    <div className="bg-emerald-600/70 text-white text-sm uppercase tracking-[0.35em] px-3 py-2 text-center font-semibold">
+                  <div className="rounded-md border border-emerald-400/40 overflow-hidden">
+                    <div className="bg-emerald-600/10 text-white text-sm uppercase tracking-[0.35em] px-3 py-2 text-center font-semibold">
                       Nome do Funcionario
                     </div>
-                    <div className="h-[140px] border-t border-emerald-500/70" />
+                    <div className="h-[140px] border-t border-emerald-400/40" />
                   </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
-                <div className="bg-slate-900/60 rounded-lg border border-emerald-400/40 text-white/80 p-4 space-y-4">
+                <div className="border border-emerald-400/40 rounded-lg bg-white/5 shadow-lg shadow-emerald-500/10text-white/80 p-4 space-y-4">
                   <div>
                     <p className="text-xs uppercase tracking-widest text-white/60">Nome Completo</p>
                     <p className="text-base font-semibold text-white">{experienceEmployee.name}</p>
@@ -447,12 +447,12 @@ const Evaluation: React.FC<EvaluationProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-slate-900/60 rounded-lg border border-emerald-400/40 p-4">
+                <div className="border border-emerald-400/40 rounded-lg bg-white/5 shadow-lg shadow-emerald-500/10 p-4">
                   <p className="text-xs font-semibold text-white/70">Nota individual por competencia (Radar)</p>
                   <div className="mt-3 h-[230px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <RadarChart data={radarData} outerRadius="90%">
-                        <PolarGrid stroke="#334155" />
+                        <PolarGrid stroke="#525533" />
                         <PolarAngleAxis
                           dataKey="name"
                           tick={{ fill: '#e2e8f0', fontSize: 11, textAnchor: 'middle', dominantBaseline: 'inherit' }}
@@ -483,7 +483,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-slate-900/60 rounded-lg border border-emerald-400/40 p-2 pr-2 flex flex-col overflow-hidden">
+                <div className="border border-emerald-400/40 rounded-lg bg-white/5 shadow-lg shadow-emerald-500/10 p-2 pr-2 flex flex-col overflow-hidden">
                   <p className="text-xs font-semibold text-white/70">Nota individual por competencia (Barras)</p>
                   <div className="mt-4 flex-1 min-h-[240px] chart-container">
                     <ResponsiveContainer width="100%" height="100%">
@@ -516,14 +516,14 @@ const Evaluation: React.FC<EvaluationProps> = ({
                 </div>
               </div>
 
-              <div className="bg-slate-900/60 rounded-lg border border-emerald-400/40 p-4">
+              <div className="border border-emerald-400/40 rounded-lg bg-white/5 shadow-lg shadow-emerald-500/10 p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-white/80">Advertencia e Suspensao</p>
                   <span className="text-xs text-white/50">(em construcao)</span>
                 </div>
                 <div className="mt-4 overflow-x-auto">
                   <table className="min-w-full text-xs text-white/80 border border-emerald-400/40">
-                    <thead className="bg-green-800 text-white/70">
+                    <thead className="bg-emerald-600/10 text-white/70">
                       <tr>
                         <th className="px-2 py-1 border border-emerald-400/40">DATA</th>
                         <th className="px-2 py-1 border border-emerald-400/40">OCORRENCIAS</th>
