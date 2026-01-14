@@ -404,6 +404,28 @@ const OperationsProducaoPanel: React.FC<OperationsProducaoPanelProps> = ({ supab
     return data
   }, [filteredRows, sortConfig])
 
+  const totals = useMemo(() => {
+    const initial = {
+      slaughtered: 0,
+      compraTraseiro: 0,
+      compraDianteiro: 0,
+      compraPA: 0,
+      vendaTraseiro: 0,
+      vendaDianteiro: 0,
+      vendaPA: 0,
+      desossaTraseiro: 0,
+      desossaDianteiro: 0,
+      desossaPA: 0,
+    }
+    return filteredRows.reduce((acc, row) => {
+      ;(Object.keys(initial) as Array<keyof typeof initial>).forEach((field) => {
+        const value = Number(row[field] ?? 0)
+        acc[field] += Number.isFinite(value) ? value : 0
+      })
+      return acc
+    }, { ...initial })
+  }, [filteredRows])
+
   const renderSortIndicator = (
     isActive: boolean,
     direction: 'asc' | 'desc',
@@ -677,8 +699,8 @@ const OperationsProducaoPanel: React.FC<OperationsProducaoPanelProps> = ({ supab
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedRows.map((row) => (
-                    <tr key={row.id} className="border-t border-white/5 hover:bg-emerald-500/5 transition-colors">
+                {sortedRows.map((row) => (
+                  <tr key={row.id} className="border-t border-white/5 hover:bg-emerald-500/5 transition-colors">
                       <td className="text-center">
                         {editingId === row.id && (row.isNew || editingValues?.isNew) ? (
                           <select
@@ -911,6 +933,24 @@ const OperationsProducaoPanel: React.FC<OperationsProducaoPanelProps> = ({ supab
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="border-t border-white/10 bg-emerald-900/60 font-semibold text-emerald-100">
+                  <td className="text-center py-1" colSpan={2}>
+                    Total
+                  </td>
+                  <td className="text-center py-1">{formatThousands(totals.slaughtered)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.compraTraseiro)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.compraDianteiro)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.compraPA)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.vendaTraseiro)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.vendaDianteiro)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.vendaPA)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.desossaTraseiro)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.desossaDianteiro)}</td>
+                  <td className="text-center py-1">{formatThousands(totals.desossaPA)}</td>
+                  <td className="text-center py-1" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
