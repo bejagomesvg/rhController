@@ -451,6 +451,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
 
   const displayTotalValue60 = hasTextFilter && totalHrs60 <= 0 ? '-' : formatCurrency(totalValue60)
   const displayTotalValue100 = hasTextFilter && totalHrs100 <= 0 ? '-' : formatCurrency(totalValue100)
+  const displayTotalValueAll = hasTextFilter && totalHrs60 <= 0 && totalHrs100 <=0 ? '-' : formatCurrency(totalValue60 + totalValue100)
 
   const aggregationMode: 'month' = 'month'
   const aggregatedVisibleRows = useMemo(() => aggregateRows(visibleRows, aggregationMode), [visibleRows, aggregationMode])
@@ -1230,88 +1231,7 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
       </div>
       )}
 
-      {/* GRAFICO HORAS POR SETOR */}
-      {hasAnyHoursChart && (
-        <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
-          <div className="flex items-center justify-between text-white/80 text-sm mb-3">
-            <div className="flex items-center gap-2">
-              <Clock10 className="w-5 h-5 text-emerald-300" />
-              {isMonthSelected ? 'Distribuição das Horas por Setor' : 'Distribuição das Horas por Mês'}
-            </div>
-          <div className="flex items-center gap-2 text-base">
-            <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
-              60% Hrs: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + s.hours60Hours * 60, 0)))}
-            </span>
-            <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
-              100% Hrs: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + s.hours100Hours * 60, 0)))}
-            </span>
-          </div>
-        </div>
-          <div className="space-y-4">
-            {hasHours60Data && (
-              <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
-                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 60%</p>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={sectorChartHours60} margin={{ top: 30, right: 15, left: 0, bottom: 24 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
-                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 9 }} axisLine={{ stroke: '#475569' }} tickCount={10} />
-                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
-                    <Bar dataKey="hours60Hours" fill="#34d5ff" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                      {sectorChartHours60.map((item, idx) => (
-                        <Cell
-                          key={`cell-hours60-${idx}`}
-                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
-                          style={{
-                            transform: hoverHours60 === idx ? 'translateY(-6px)' : 'translateY(0)',
-                            transition: 'transform 50ms ease',
-                          }}
-                          onMouseEnter={() => setHoverHours60(idx)}
-                          onMouseLeave={() => setHoverHours60(null)}
-                        />
-                      ))}
-                      {useRotatedLabels ? (
-                        <LabelList dataKey="hours60Hours" position="top" content={rotatedLabelHours60 as any} />
-                      ) : (
-                        <LabelList dataKey="hours60Hours" position="top" formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))} fill="#e2e8f0" fontSize={11} />
-                      )}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-            {hasHours100Data && (
-              <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
-                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 100%</p>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={sectorChartHours100} margin={{ top: 12, right: 16, left: 8, bottom: 24 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={90} />
-                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 9 }} axisLine={{ stroke: '#475569' }} tickCount={10} />
-                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
-                    <Bar dataKey="hours100Hours" fill="#f43f5e" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                      {sectorChartHours100.map((item, idx) => (
-                        <Cell
-                          key={`cell-hours100-${idx}`}
-                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
-                          style={{
-                            transform: hoverHours100 === idx ? 'translateY(-6px)' : 'translateY(0)',
-                            transition: 'transform 150ms ease',
-                          }}
-                          onMouseEnter={() => setHoverHours100(idx)}
-                          onMouseLeave={() => setHoverHours100(null)}
-                        />
-                      ))}
-                      <LabelList dataKey="hours100Hours" position="top" formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))} fill="#e2e8f0" fontSize={11} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
+      {/* GRAFICO VALORES POR SETOR */}
       {hasAnyValueChart && (
         <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
           <div className="flex items-center justify-between text-white/80 text-sm mb-3">
@@ -1326,14 +1246,18 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
               <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
                 100% R$: {displayTotalValue100}
               </span>
+              <span className="px-2 py-1 rounded-md border border-yellow-400/40 bg-yellow-500/10 text-yellow-500 shadow-inner shadow-yellow-500/20">
+                R$: {(displayTotalValueAll)}
+              </span>              
             </div>
           </div>
           <div className="space-y-4">
+            {/* GRAFICO VALORES 60% */}
             {hasValue60Data && (
               <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
                 <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Valores 60%</p>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={sectorChartValue60} margin={{ top: 32, right: 16, left: 8, bottom: 36 }}>
+                  <BarChart data={sectorChartValue60} margin={{ top: 60, right: 16, left: 8, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                     <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
                     <YAxis tick={{ fill: '#cbd5e1', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
@@ -1361,11 +1285,12 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                 </ResponsiveContainer>
               </div>
             )}
+            {/* GRAFICO VALORES 100% */}
             {hasValue100Data && (
               <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
                 <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Valores 100%</p>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={sectorChartValue100} margin={{ top: 32, right: 16, left: 8, bottom: 36 }}>
+                  <BarChart data={sectorChartValue100} margin={{ top: 32, right: 16, left: 8, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
                     <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
                     <YAxis tick={{ fill: '#cbd5e1', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
@@ -1384,6 +1309,93 @@ const OperationsTimePanel: React.FC<OperationsTimePanelProps> = ({ supabaseUrl, 
                         />
                       ))}
                       <LabelList dataKey="value100" position="top" formatter={(v: any) => formatCurrency(Number(v ?? 0))} fill="#e2e8f0" fontSize={10} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* GRAFICO HORAS POR SETOR */}
+      {hasAnyHoursChart && (
+        <div className="bg-white-to-b from-slate-900/80 to-slate-900/60 border border-emerald-400/40 rounded-lg p-3 shadow-lg shadow-emerald-500/15">
+          <div className="flex items-center justify-between text-white/80 text-sm mb-3">
+            <div className="flex items-center gap-2">
+              <Clock10 className="w-5 h-5 text-emerald-300" />
+              {isMonthSelected ? 'Distribuição das Horas por Setor' : 'Distribuição das Horas por Mês'}
+            </div>
+          <div className="flex items-center gap-2 text-base">
+            <span className="px-2 py-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-orange-500 shadow-inner shadow-emerald-500/20">
+              60% Hrs: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + s.hours60Hours * 60, 0)))}
+            </span>
+            <span className="px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/10 text-rose-500 shadow-inner shadow-rose-500/20">
+              100% Hrs: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + s.hours100Hours * 60, 0)))}
+            </span>
+            <span className="px-2 py-1 rounded-md border border-yellow-400/40 bg-yellow-500/10 text-yellow-500 shadow-inner shadow-yellow-500/20">
+              Geral: {formatMinutes(Math.round(chartBaseItems.reduce((acc, s) => acc + (s.hours100Hours * 60) + (s.hours60Hours * 60), 0)))}
+            </span>            
+          </div>
+        </div>
+          <div className="space-y-4">
+            {/* GRAFICO HORAS 60% */}
+            {hasHours60Data && (
+              <div className="mt-2 h-[420px] rounded-lg border border-white/10 bg-white/5">
+                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 60%</p>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sectorChartHours60} margin={{ top: 60, right: 15, left: 0, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={100} />
+                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 9 }} axisLine={{ stroke: '#475569' }} tickCount={10} />
+                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
+                    <Bar dataKey="hours60Hours" fill="#34d5ff" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                      {sectorChartHours60.map((item, idx) => (
+                        <Cell
+                          key={`cell-hours60-${idx}`}
+                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                          style={{
+                            transform: hoverHours60 === idx ? 'translateY(-6px)' : 'translateY(0)',
+                            transition: 'transform 50ms ease',
+                          }}
+                          onMouseEnter={() => setHoverHours60(idx)}
+                          onMouseLeave={() => setHoverHours60(null)}
+                        />
+                      ))}
+                      {useRotatedLabels ? (
+                        <LabelList dataKey="hours60Hours" position="top" content={rotatedLabelHours60 as any} />
+                      ) : (
+                        <LabelList dataKey="hours60Hours" position="top" formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))} fill="#e2e8f0" fontSize={11} />
+                      )}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {/* GRAFICO HORAS 100% */}
+            {hasHours100Data && (
+              <div className="mt-2 h-[360px] rounded-lg border border-white/10 bg-white/5">
+                <p className="text-[11px] text-white/70 px-3 pt-2 font-semibold uppercase tracking-[0.15em]">Horas 100%</p>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={sectorChartHours100} margin={{ top: 12, right: 16, left: 8, bottom: 17 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                    <XAxis dataKey="sector" tick={<SectorTick />} axisLine={{ stroke: '#475569' }} interval={0} height={90} />
+                    <YAxis tick={{ fill: '#cbd5e1', fontSize: 9 }} axisLine={{ stroke: '#475569' }} tickCount={10} />
+                    <Tooltip cursor={{ fill: 'transparent' }} content={barTooltipHours} />
+                    <Bar dataKey="hours100Hours" fill="#f43f5e" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                      {sectorChartHours100.map((item, idx) => (
+                        <Cell
+                          key={`cell-hours100-${idx}`}
+                          fill={item.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                          style={{
+                            transform: hoverHours100 === idx ? 'translateY(-6px)' : 'translateY(0)',
+                            transition: 'transform 150ms ease',
+                          }}
+                          onMouseEnter={() => setHoverHours100(idx)}
+                          onMouseLeave={() => setHoverHours100(null)}
+                        />
+                      ))}
+                      <LabelList dataKey="hours100Hours" position="top" formatter={(v: unknown) => formatMinutes(Math.round(Number(v ?? 0) * 60))} fill="#e2e8f0" fontSize={11} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
