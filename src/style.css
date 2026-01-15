@@ -229,3 +229,68 @@ body {
   transform: scaleY(1.05);
   filter: brightness(1.2);
 }
+
+.daypicker-dark {
+  --rdp-accent-color: #34d399;
+  --rdp-background-color: transparent;
+  --rdp-outline: 2px solid rgba(52, 211, 153, 0.6);
+  --rdp-accent-color-dark: #10b981;
+  --rdp-background-color-dark: transparent;
+  --rdp-outline-selected: 2px solid rgba(52, 211, 153, 0.7);
+  --rdp-cell-size: 26px;
+  --rdp-caption-font-size: 12px;
+  --rdp-nav_button-height: 24px;
+  --rdp-nav_button-width: 24px;
+  color: #e5e7eb;
+}
+
+.daypicker-dark .rdp-day_button {
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.daypicker-dark .rdp-caption_label,
+.daypicker-dark .rdp-dropdown {
+  color: #e5e7eb;
+}
+
+.daypicker-dark .rdp-dropdown {
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.daypicker-dark .rdp-dropdown option {
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.daypicker-dark .rdp-dropdowns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-direction: row-reverse;
+  justify-content: center;
+}
+
+.daypicker-dark .rdp-weekday {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+}
+
+.daypicker-dark .rdp-blocked .rdp-day_button {
+  position: relative;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.daypicker-dark .rdp-blocked .rdp-day_button::after {
+  content: "x";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(248, 113, 113, 0.9);
+  font-weight: 700;
+  font-size: 12px;
+}

@@ -57,7 +57,7 @@ export async function fetchProductionRows(
   }
 }
 
-const toNumberOrNull = (val: any) => {
+export const toNumberOrNull = (val: any) => {
   if (val === '' || val === null || val === undefined) return null
   const num = Number(val)
   return Number.isNaN(num) ? null : num
@@ -110,16 +110,16 @@ export async function upsertProductionRow(
     const updating = !row.isNew && (row as any).id !== undefined && (row as any).id !== null
     const payload: ProductionRowPayload = updating
       ? {
-          ...basePayload,
-          user_update: row.user_update ?? row.user_registration ?? null,
-          date_update: new Date().toISOString(),
-        }
+        ...basePayload,
+        user_update: row.user_update ?? row.user_registration ?? null,
+        date_update: new Date().toISOString(),
+      }
       : {
-          ...basePayload,
-          type_registration: 'SYSTEM',
-          user_registration: row.user_registration || 'system',
-          date_registration: new Date().toISOString(),
-        }
+        ...basePayload,
+        type_registration: 'SYSTEM',
+        user_registration: row.user_registration || 'system',
+        date_registration: new Date().toISOString(),
+      }
     console.log('[production] payload', {
       mode: updating ? 'update' : 'insert',
       data: { ...payload, id: (row as any).id },
@@ -190,6 +190,254 @@ export async function deleteProductionRow(
   try {
     const url = new URL(`${supabaseUrl}/rest/v1/production`)
     url.searchParams.append('id', `eq.${id}`)
+    url.searchParams.set('apikey', apiKey)
+
+    const res = await fetch(url.toString(), {
+      method: 'DELETE',
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
+        Prefer: 'count=exact',
+      },
+    })
+
+    if (!res.ok) {
+      return { ok: false, deleted: 0, error: await res.text() }
+    }
+
+    const range = res.headers.get('content-range')
+    const deleted = range ? Number(range.split('/')[1] || 0) : 0
+    return { ok: true, deleted: Number.isNaN(deleted) ? 0 : deleted }
+  } catch (error) {
+    return { ok: false, deleted: 0, error: (error as Error).message }
+  }
+}
+
+export async function deleteProductionRowsByIds(
+  ids: number[],
+  supabaseUrl?: string,
+  supabaseKey?: string
+): Promise<{ ok: boolean; deleted: number; error?: string }> {
+  const apiKey = (supabaseKey || '').trim()
+  if (!supabaseUrl || !apiKey) {
+    return { ok: false, deleted: 0, error: 'Missing Supabase credentials' }
+  }
+  if (!ids.length) {
+    return { ok: true, deleted: 0 }
+  }
+  try {
+    const url = new URL(`${supabaseUrl}/rest/v1/production`)
+    url.searchParams.append('id', `in.(${ids.join(',')})`)
+    url.searchParams.set('apikey', apiKey)
+
+    const res = await fetch(url.toString(), {
+      method: 'DELETE',
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
+        Prefer: 'count=exact',
+      },
+    })
+
+    if (!res.ok) {
+      return { ok: false, deleted: 0, error: await res.text() }
+    }
+
+    const range = res.headers.get('content-range')
+    const deleted = range ? Number(range.split('/')[1] || 0) : 0
+    return { ok: true, deleted: Number.isNaN(deleted) ? 0 : deleted }
+  } catch (error) {
+    return { ok: false, deleted: 0, error: (error as Error).message }
+  }
+}
+
+export async function fetchClosingProductionRows(
+  supabaseUrl?: string,
+  supabaseKey?: string
+): Promise<{ ok: boolean; rows: any[]; error?: string }> {
+  const apiKey = (supabaseKey || '').trim()
+  if (!supabaseUrl || !apiKey) {
+    return { ok: false, rows: [], error: 'Missing Supabase credentials' }
+  }
+
+  try {
+    const url = new URL(`${supabaseUrl}/rest/v1/closing_production`)
+    url.searchParams.set(
+      'select',
+      'id,company,date_,slaughtered,compratraseiro,compradianteiro,comprapa,vendatraseiro,vendadianteiro,vendapa,desossatraseiro,desossadianteiro,desossapa,user_registration,date_registration'
+    )
+    url.searchParams.set('order', 'date_.desc')
+    url.searchParams.set('apikey', apiKey)
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
+      },
+    })
+
+    if (!res.ok) {
+      return { ok: false, rows: [], error: await res.text() }
+    }
+
+    const data = (await res.json()) as any[]
+    return { ok: true, rows: data }
+  } catch (error) {
+    return { ok: false, rows: [], error: (error as Error).message }
+  }
+}
+
+export async function insertClosingProductionRows(
+  rows: Array<Partial<ProductionRowPayload>>,
+  supabaseUrl?: string,
+  supabaseKey?: string
+): Promise<{ ok: boolean; error?: string; rows?: any[] }> {
+  const apiKey = (supabaseKey || '').trim()
+  if (!supabaseUrl || !apiKey) {
+    return { ok: false, error: 'Missing Supabase credentials' }
+  }
+
+  const now = new Date().toISOString()
+  const payloads = rows
+    .map((row) => {
+      const isoDate = toIsoDate(row.date_)
+      if (!isoDate) return null
+      const company = Number((row as any).company)
+      if (!Number.isFinite(company)) return null
+      return {
+        company,
+        date_: isoDate,
+        slaughtered: toNumberOrNull((row as any).slaughtered),
+        compratraseiro: toNumberOrNull((row as any).compratraseiro),
+        compradianteiro: toNumberOrNull((row as any).compradianteiro),
+        comprapa: toNumberOrNull((row as any).comprapa),
+        vendatraseiro: toNumberOrNull((row as any).vendatraseiro),
+        vendadianteiro: toNumberOrNull((row as any).vendadianteiro),
+        vendapa: toNumberOrNull((row as any).vendapa),
+        desossatraseiro: toNumberOrNull((row as any).desossatraseiro),
+        desossadianteiro: toNumberOrNull((row as any).desossadianteiro),
+        desossapa: toNumberOrNull((row as any).desossapa),
+        type_registration: row.type_registration ?? 'SYSTEM',
+        user_registration: row.user_registration ?? 'system',
+        date_registration: row.date_registration ?? now,
+      }
+    })
+    .filter(Boolean)
+
+  if (!payloads.length) {
+    return { ok: false, error: 'Sem dados validos para fechar.' }
+  }
+
+  try {
+    const postUrl = new URL(`${supabaseUrl}/rest/v1/closing_production`)
+    postUrl.searchParams.set('apikey', apiKey)
+
+    const res = await fetch(postUrl.toString(), {
+      method: 'POST',
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(payloads),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      return { ok: false, error: text || res.statusText }
+    }
+
+    const data = (await res.json()) as any[]
+    return { ok: true, rows: data }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
+}
+
+export async function insertProductionRows(
+  rows: Array<Partial<ProductionRowPayload>>,
+  supabaseUrl?: string,
+  supabaseKey?: string
+): Promise<{ ok: boolean; error?: string; rows?: any[] }> {
+  const apiKey = (supabaseKey || '').trim()
+  if (!supabaseUrl || !apiKey) {
+    return { ok: false, error: 'Missing Supabase credentials' }
+  }
+
+  const now = new Date().toISOString()
+  const payloads = rows
+    .map((row) => {
+      const isoDate = toIsoDate(row.date_)
+      if (!isoDate) return null
+      const company = Number((row as any).company)
+      if (!Number.isFinite(company)) return null
+      return {
+        company,
+        date_: isoDate,
+        slaughtered: toNumberOrNull((row as any).slaughtered),
+        compratraseiro: toNumberOrNull((row as any).compratraseiro),
+        compradianteiro: toNumberOrNull((row as any).compradianteiro),
+        comprapa: toNumberOrNull((row as any).comprapa),
+        vendatraseiro: toNumberOrNull((row as any).vendatraseiro),
+        vendadianteiro: toNumberOrNull((row as any).vendadianteiro),
+        vendapa: toNumberOrNull((row as any).vendapa),
+        desossatraseiro: toNumberOrNull((row as any).desossatraseiro),
+        desossadianteiro: toNumberOrNull((row as any).desossadianteiro),
+        desossapa: toNumberOrNull((row as any).desossapa),
+        type_registration: row.type_registration ?? 'Sistema',
+        user_registration: row.user_registration ?? 'system',
+        date_registration: row.date_registration ?? now,
+      }
+    })
+    .filter(Boolean)
+
+  if (!payloads.length) {
+    return { ok: false, error: 'Sem dados validos para restaurar.' }
+  }
+
+  try {
+    const postUrl = new URL(`${supabaseUrl}/rest/v1/production`)
+    postUrl.searchParams.set('apikey', apiKey)
+
+    const res = await fetch(postUrl.toString(), {
+      method: 'POST',
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(payloads),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      return { ok: false, error: text || res.statusText }
+    }
+
+    const data = (await res.json()) as any[]
+    return { ok: true, rows: data }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
+}
+
+export async function deleteClosingProductionRowsByIds(
+  ids: number[],
+  supabaseUrl?: string,
+  supabaseKey?: string
+): Promise<{ ok: boolean; deleted: number; error?: string }> {
+  const apiKey = (supabaseKey || '').trim()
+  if (!supabaseUrl || !apiKey) {
+    return { ok: false, deleted: 0, error: 'Missing Supabase credentials' }
+  }
+  if (!ids.length) {
+    return { ok: true, deleted: 0 }
+  }
+  try {
+    const url = new URL(`${supabaseUrl}/rest/v1/closing_production`)
+    url.searchParams.append('id', `in.(${ids.join(',')})`)
     url.searchParams.set('apikey', apiKey)
 
     const res = await fetch(url.toString(), {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Factory, FileText, Filter, Hospital, Mars, RefreshCcw, RotateCw, Users, Venus } from 'lucide-react'
 import {
   Bar,
@@ -28,6 +28,12 @@ type ClosingRow = {
   status_: number | null
 }
 
+type ClosingProductionRow = {
+  company: number | null
+  date_: string | null
+  slaughtered: number | null
+}
+
 type EmployeeSectorRow = {
   registration: number | string | null
   sector: string | null
@@ -54,6 +60,8 @@ type StatusRow = {
 
 const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, supabaseUrl }) => {
   const [closingRows, setClosingRows] = useState<ClosingRow[]>([])
+  const [closingProductionRows, setClosingProductionRows] = useState<ClosingProductionRow[]>([])
+  const [isLoadingClosingProduction, setIsLoadingClosingProduction] = useState(true)
   const [employeeInfo, setEmployeeInfo] = useState<
     Map<
       string,
@@ -138,11 +146,13 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseKey) {
+      setIsLoadingClosingProduction(false)
       return
     }
     const controller = new AbortController()
     const fetchBase = async () => {
       try {
+        setIsLoadingClosingProduction(true)
         const closingData: ClosingRow[] = []
         const closingUrl = new URL(`${supabaseUrl}/rest/v1/closing_payroll`)
         closingUrl.searchParams.set('select', 'company,competence,registration,status_')
@@ -170,6 +180,34 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
           }
         }
         setClosingRows(closingData)
+
+        const closingProductionData: ClosingProductionRow[] = []
+        const closingProductionUrl = new URL(`${supabaseUrl}/rest/v1/closing_production`)
+        closingProductionUrl.searchParams.set('select', 'company,date_,slaughtered')
+        const closingProductionPageSize = 1000
+        let closingProductionStart = 0
+        let closingProductionHasMore = true
+        while (closingProductionHasMore) {
+          const closingProductionRes = await fetch(closingProductionUrl.toString(), {
+            headers: {
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+              Range: `${closingProductionStart}-${closingProductionStart + closingProductionPageSize - 1}`,
+            },
+            signal: controller.signal,
+          })
+          if (!closingProductionRes.ok) {
+            throw new Error(await closingProductionRes.text())
+          }
+          const closingProductionChunk = (await closingProductionRes.json()) as ClosingProductionRow[]
+          closingProductionData.push(...closingProductionChunk)
+          if (closingProductionChunk.length < closingProductionPageSize) {
+            closingProductionHasMore = false
+          } else {
+            closingProductionStart += closingProductionPageSize
+          }
+        }
+        setClosingProductionRows(closingProductionData)
 
         const employeeData: EmployeeSectorRow[] = []
         const employeeUrl = new URL(`${supabaseUrl}/rest/v1/employee`)
@@ -265,6 +303,7 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
           // No UI surface yet for filter errors.
         }
       } finally {
+        setIsLoadingClosingProduction(false)
       }
     }
     fetchBase()
@@ -509,9 +548,9 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
         const targetCompetences =
           monthFilter === ''
             ? competenceOptions.filter((value) => {
-                const parsed = parseYearMonth(value)
-                return parsed && parsed.year === Number(yearFilter)
-              })
+              const parsed = parseYearMonth(value)
+              return parsed && parsed.year === Number(yearFilter)
+            })
             : [`${yearFilter}-${String(monthFilter).padStart(2, '0')}-01`]
         if (targetCompetences.length === 0) {
           setPayrollRows([])
@@ -642,6 +681,56 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(value)
+
+  const isLoadingCards = isLoadingClosingProduction || isLoadingPayroll
+  const lastCardValuesRef = useRef<{
+    collaborator: number | null
+    turnover: number | null
+    absPercent: number | null
+    faltas: number | null
+    atestados: number | null
+    abate: number | null
+    extras: number | null
+    dsr: number | null
+    atestadosVolue: number | null
+    ajuda: number | null
+  }>({
+    collaborator: null,
+    turnover: null,
+    absPercent: null,
+    faltas: null,
+    atestados: null,
+    abate: null,
+    extras: null,
+    dsr: null,
+    atestadosVolue: null,
+    ajuda: null,
+  })
+
+  const showCardValue = (current: number, last: number | null, format: (value: number) => string) => {
+    if (isLoadingCards) {
+      if (last === null || last === undefined) return '...'
+      return format(last)
+    }
+    return format(current)
+  }
+
+  const closingProductionAbate = useMemo(() => {
+    if (!yearFilter) return 0
+    const targetYear = Number(yearFilter)
+    const targetMonth = Number(monthFilter)
+    const hasMonthFilter = monthFilter !== ''
+    let total = 0
+    closingProductionRows.forEach((row) => {
+      if (companyFilter && String(row.company ?? '') !== companyFilter) return
+      const parsed = parseYearMonth(row.date_)
+      if (!parsed || parsed.year !== targetYear) return
+      if (hasMonthFilter && parsed.month !== targetMonth) return
+      const value = Number(row.slaughtered ?? 0)
+      if (Number.isFinite(value)) total += value
+    })
+    return total
+  }, [closingProductionRows, companyFilter, monthFilter, yearFilter])
 
   const turnoverCounts = useMemo(() => {
     if (!yearFilter) return { admissions: 0, dismissals: 0 }
@@ -973,6 +1062,22 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
     }
     return closingRegistrations.size
   }, [closingRegistrations, closingRegistrationsByMonth, monthFilter])
+
+  useEffect(() => {
+    if (isLoadingCards) return
+    lastCardValuesRef.current = {
+      collaborator: collaboratorSectorTotal,
+      turnover: turnoverPercent,
+      absPercent: payrollIndicators.absenteismoPercent,
+      faltas: payrollIndicators.faltasRef,
+      atestados: payrollIndicators.atestadosRef,
+      abate: closingProductionAbate,
+      extras: payrollIndicators.extras || 0,
+      dsr: payrollIndicators.dsr || 0,
+      atestadosVolue: payrollIndicators.atestadosVolue || 0,
+      ajuda: payrollIndicators.ajuda || 0,
+    }
+  }, [closingProductionAbate, collaboratorSectorTotal, isLoadingCards, payrollIndicators, turnoverPercent])
 
   const activeCollaboratorSectorTotal = useMemo(() => {
     if (monthFilter === '') {
@@ -1470,755 +1575,319 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
 
   return (
     <div className="space-y-4">
-    <div className="bg-white/5 border border-white/10 rounded-lg p-3 shadow-inner shadow-black/10">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 text-emerald-200 font-semibold">
-          <FileText className="w-6 h-6 text-amber-300" />
-          FOLHA MENSAL
-        </div>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <div className="flex items-center gap-2 text-white/60 text-[11px] uppercase tracking-[0.2em]">
-            <Filter className="w-4 h-4 text-emerald-300" />
-            Filtros
+      <div className="bg-white/5 border border-white/10 rounded-lg p-3 shadow-inner shadow-black/10">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-emerald-200 font-semibold">
+            <FileText className="w-6 h-6 text-amber-300" />
+            FOLHA MENSAL
           </div>
-          <select
-            value={companyFilter}
-            onChange={(event) => setCompanyFilter(event.target.value)}
-            className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
-          >
-            {companyOptions.map((company) => (
-              <option key={company} value={String(company)} className="bg-[#1f2c4d] text-emerald-300">
-                {formatCompanyLabel(company)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={yearFilter}
-            onChange={(event) => setYearFilter(event.target.value)}
-            className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
-          >
-            {yearOptions.map((year) => (
-              <option key={year} value={String(year)} className="bg-[#1f2c4d] text-emerald-300">
-                {year}
-              </option>
-            ))}
-          </select>
-          <select
-            value={monthFilter}
-            onChange={(event) => setMonthFilter(event.target.value)}
-            className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
-          >
-            <option value="" className="bg-[#1f2c4d] text-emerald-300">
-              --
-            </option>
-            {monthOptions.map((month) => (
-              <option key={month} value={String(month)} className="bg-[#1f2c4d] text-emerald-300">
-                {String(month).padStart(2, '0')}
-              </option>
-            ))}
-          </select>
-          <select
-            value={sectorFilter}
-            onChange={(event) => setSectorFilter(event.target.value)}
-            className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
-          >
-            <option value="" className="bg-[#1f2c4d] text-emerald-300">
-              Setor
-            </option>
-            {sectorOptions.map((sector) => (
-              <option key={sector} value={sector} className="bg-[#1f2c4d] text-emerald-300">
-                {sector}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleClearFilters}
-            className="inline-flex items-center justify-center text-emerald-100 rounded-full border border-transparent px-2 py-1.5 hover:border-emerald-500/40 hover:bg-emerald-500/10 transition-colors"
-            title="Limpar filtros"
-          >
-            <RotateCw className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      <div className="bg-gradient-to-br from-violet-300/25 via-violet-500/20 to-slate-900/45 border border-violet-300/30 rounded-xl p-3 shadow-lg">
-        <div className="flex flex-col h-full">
-          <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              {`Colaboradores${titleSuffix}${refLabel}`}
-            </p>
-            <div className="-mt-1">
-              <Users className="w-5 h-5 text-violet-300" />
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2 text-white/60 text-[11px] uppercase tracking-[0.2em]">
+              <Filter className="w-4 h-4 text-emerald-300" />
+              Filtros
             </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-2xl font-semibold text-violet-200">
-              {isLoadingPayroll ? '...' : formatIndicator(collaboratorSectorTotal)}
-            </p>
-          </div>
-          <div className="h-4" />
-        </div>
-      </div>
-      <div className="bg-gradient-to-br from-orange-300/25 via-orange-500/20 to-slate-900/45 border border-orange-300/30 rounded-xl p-3 shadow-lg">
-        <div className="flex flex-col h-full">
-          <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              {`Turnover${titleSuffix}${refLabel}`}
-            </p>
-            <div className="-mt-1">
-              <RefreshCcw className="w-5 h-5 text-orange-300" />
-            </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-2xl font-semibold text-orange-200">
-              {isLoadingPayroll ? '...' : formatPercent(turnoverPercent)}
-            </p>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold">
-            <span>
-              ADMISSAO: <span className="text-white">{turnoverCounts.admissions}</span>
-            </span>
-            <span>
-              DEMISAO: <span className="text-white">{turnoverCounts.dismissals}</span>
-            </span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-gradient-to-br from-red-300/25 via-red-500/20 to-slate-900/45 border border-red-300/30 rounded-xl p-3 shadow-lg">
-        <div className="flex flex-col h-full">
-          <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              {`Absenteismo${titleSuffix}${refLabel}`}
-            </p>
-            <div className="-mt-1">
-              <Hospital className="w-5 h-5 text-red-300" />
-            </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-2xl font-semibold text-red-200">
-              {isLoadingPayroll ? '...' : formatPercent(payrollIndicators.absenteismoPercent)}
-            </p>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold">
-            <span>
-              FALTAS: <span className="text-white">{isLoadingPayroll ? '...' : formatIndicator(payrollIndicators.faltasRef)}</span>
-            </span>           
-            <span>
-              ATESTADOS: <span className="text-white">{isLoadingPayroll ? '...' : formatIndicator(payrollIndicators.atestadosRef)}</span>
-            </span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-gradient-to-br from-amber-300/25 via-amber-500/20 to-slate-900/45 border border-amber-300/30 rounded-xl p-3 shadow-lg">
-        <div className="flex flex-col h-full">
-          <div className="flex items-start justify-between">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              {`Abate${titleSuffix}${refLabel}`}
-            </p>
-            <div className="-mt-1">
-              <Factory className="w-5 h-5 text-amber-300" />
-            </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-2xl font-semibold text-amber-200">-</p>
-          </div>
-          <div className="h-4" />
-        </div>
-      </div>
-    </div>
-
-    <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
-      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-        <div className="flex items-center justify-between text-white mb-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-              {`Salario por Setor${titleSuffix}${refLabel}`}
-            </p>
-          </div>
-          <span className="text-emerald-300 text-xs font-semibold">{formatCurrency(eventsTotalValue)}</span>
-        </div>
-        {salaryChartData.length === 0 ? (
-          <div className="mt-4 text-white/70 text-sm">Sem dados por setor.</div>
-        ) : (
-          <div className="relative mt-4">
-            <div
-              className={`grid gap-x-6 gap-y-4 relative ${salaryChartData.length <= 6 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}
+            <select
+              value={companyFilter}
+              onChange={(event) => setCompanyFilter(event.target.value)}
+              className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
             >
-              {(salaryChartData.length <= 6
-                ? [salaryChartData.slice(0, 6)]
-                : [salaryChartData.slice(0, 6), salaryChartData.slice(6)]
-              ).map((col, colIdx) => (
-                <div key={colIdx} className="space-y-3 md:px-2">
-                  {col.map((item) => (
-                    <div key={item.label} className="relative group space-y-1">
-                      <div className="grid grid-cols-[minmax(0,1fr)_80px_auto] items-center text-white text-xs gap-2">
-                        <span className="font-semibold truncate pr-2 transition-colors duration-150 group-hover:text-emerald-100">
-                          {item.label}
-                        </span>
-                        <span className="text-white/70 text-center font-semibold transition-colors duration-150 group-hover:text-emerald-200">
-                          {item.percent.toFixed(1)}%
-                        </span>
-                        <span className="text-white font-semibold text-right transition-colors duration-150 group-hover:text-emerald-100">
-                          {formatCurrency(item.valor)}
-                        </span>
-                      </div>
-                      <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full shadow-[0_0_12px_rgba(34,197,94,0.35)] transition-all duration-150 ease-out group-hover:shadow-[0_0_20px_rgba(34,197,94,0.55)] group-hover:scale-[1.02]"
-                          style={{
-                            width: `${Math.max(item.percent, 3)}%`,
-                            background: `linear-gradient(90deg, ${item.color} 0%, ${item.color}CC 50%, #22c55eAA 100%)`,
-                          }}
-                        />
-                      </div>
-                      <div className="pointer-events-none absolute -top-14 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                        <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-[11px] text-white shadow-lg text-center whitespace-nowrap">
-                          <div className="font-semibold text-xs">{item.label}</div>
-                          <div className="mt-1 text-purple-300">
-                            {item.percent.toFixed(1)}% {formatCurrency(item.valor)}
+              {companyOptions.map((company) => (
+                <option key={company} value={String(company)} className="bg-[#1f2c4d] text-emerald-300">
+                  {formatCompanyLabel(company)}
+                </option>
+              ))}
+            </select>
+            <select
+              value={yearFilter}
+              onChange={(event) => setYearFilter(event.target.value)}
+              className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+            >
+              {yearOptions.map((year) => (
+                <option key={year} value={String(year)} className="bg-[#1f2c4d] text-emerald-300">
+                  {year}
+                </option>
+              ))}
+            </select>
+            <select
+              value={monthFilter}
+              onChange={(event) => setMonthFilter(event.target.value)}
+              className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+            >
+              <option value="" className="bg-[#1f2c4d] text-emerald-300">
+                --
+              </option>
+              {monthOptions.map((month) => (
+                <option key={month} value={String(month)} className="bg-[#1f2c4d] text-emerald-300">
+                  {String(month).padStart(2, '0')}
+                </option>
+              ))}
+            </select>
+            <select
+              value={sectorFilter}
+              onChange={(event) => setSectorFilter(event.target.value)}
+              className="bg-white/5 text-emerald-300 text-[11px] border border-white/15 rounded-md px-2 py-1.5 outline-none focus:border-emerald-400"
+            >
+              <option value="" className="bg-[#1f2c4d] text-emerald-300">
+                Setor
+              </option>
+              {sectorOptions.map((sector) => (
+                <option key={sector} value={sector} className="bg-[#1f2c4d] text-emerald-300">
+                  {sector}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="inline-flex items-center justify-center text-emerald-100 rounded-full border border-transparent px-2 py-1.5 hover:border-emerald-500/40 hover:bg-emerald-500/10 transition-colors"
+              title="Limpar filtros"
+            >
+              <RotateCw className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="bg-gradient-to-br from-violet-300/25 via-violet-500/20 to-slate-900/45 border border-violet-300/30 rounded-xl p-3 shadow-lg">
+          <div className="flex flex-col h-full">
+            <div className="flex items-start justify-between">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Colaboradores${titleSuffix}${refLabel}`}
+              </p>
+              <div className="-mt-1">
+                <Users className="w-5 h-5 text-violet-300" />
+              </div>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-2xl font-semibold text-violet-200">
+                {showCardValue(
+                  collaboratorSectorTotal,
+                  lastCardValuesRef.current.collaborator,
+                  formatIndicator
+                )}
+              </p>
+            </div>
+            <div className="h-4" />
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-orange-300/25 via-orange-500/20 to-slate-900/45 border border-orange-300/30 rounded-xl p-3 shadow-lg">
+          <div className="flex flex-col h-full">
+            <div className="flex items-start justify-between">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Turnover${titleSuffix}${refLabel}`}
+              </p>
+              <div className="-mt-1">
+                <RefreshCcw className="w-5 h-5 text-orange-300" />
+              </div>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-2xl font-semibold text-orange-200">
+                {showCardValue(turnoverPercent, lastCardValuesRef.current.turnover, formatPercent)}
+              </p>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold">
+              <span>
+                ADMISSAO: <span className="text-white">{turnoverCounts.admissions}</span>
+              </span>
+              <span>
+                DEMISAO: <span className="text-white">{turnoverCounts.dismissals}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-red-300/25 via-red-500/20 to-slate-900/45 border border-red-300/30 rounded-xl p-3 shadow-lg">
+          <div className="flex flex-col h-full">
+            <div className="flex items-start justify-between">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Absenteismo${titleSuffix}${refLabel}`}
+              </p>
+              <div className="-mt-1">
+                <Hospital className="w-5 h-5 text-red-300" />
+              </div>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-2xl font-semibold text-red-200">
+                {showCardValue(
+                  payrollIndicators.absenteismoPercent,
+                  lastCardValuesRef.current.absPercent,
+                  formatPercent
+                )}
+              </p>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-white/70 font-semibold">
+              <span>
+                FALTAS:{' '}
+                <span className="text-white">
+                  {showCardValue(payrollIndicators.faltasRef, lastCardValuesRef.current.faltas, formatIndicator)}
+                </span>
+              </span>
+              <span>
+                ATESTADOS:{' '}
+                <span className="text-white">
+                  {showCardValue(payrollIndicators.atestadosRef, lastCardValuesRef.current.atestados, formatIndicator)}
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-amber-300/25 via-amber-500/20 to-slate-900/45 border border-amber-300/30 rounded-xl p-3 shadow-lg">
+          <div className="flex flex-col h-full">
+            <div className="flex items-start justify-between">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Abate${titleSuffix}${refLabel}`}
+              </p>
+              <div className="-mt-1">
+                <Factory className="w-5 h-5 text-amber-300" />
+              </div>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-2xl font-semibold text-amber-200">
+                {showCardValue(closingProductionAbate, lastCardValuesRef.current.abate, formatIndicator)}
+              </p>
+            </div>
+            <div className="h-4" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
+        <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+          <div className="flex items-center justify-between text-white mb-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+                {`Salario por Setor${titleSuffix}${refLabel}`}
+              </p>
+            </div>
+            <span className="text-emerald-300 text-xs font-semibold">{formatCurrency(eventsTotalValue)}</span>
+          </div>
+          {salaryChartData.length === 0 ? (
+            <div className="mt-4 text-white/70 text-sm">Sem dados por setor.</div>
+          ) : (
+            <div className="relative mt-4">
+              <div
+                className={`grid gap-x-6 gap-y-4 relative ${salaryChartData.length <= 6 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}
+              >
+                {(salaryChartData.length <= 6
+                  ? [salaryChartData.slice(0, 6)]
+                  : [salaryChartData.slice(0, 6), salaryChartData.slice(6)]
+                ).map((col, colIdx) => (
+                  <div key={colIdx} className="space-y-3 md:px-2">
+                    {col.map((item) => (
+                      <div key={item.label} className="relative group space-y-1">
+                        <div className="grid grid-cols-[minmax(0,1fr)_80px_auto] items-center text-white text-xs gap-2">
+                          <span className="font-semibold truncate pr-2 transition-colors duration-150 group-hover:text-emerald-100">
+                            {item.label}
+                          </span>
+                          <span className="text-white/70 text-center font-semibold transition-colors duration-150 group-hover:text-emerald-200">
+                            {item.percent.toFixed(1)}%
+                          </span>
+                          <span className="text-white font-semibold text-right transition-colors duration-150 group-hover:text-emerald-100">
+                            {formatCurrency(item.valor)}
+                          </span>
+                        </div>
+                        <div className="h-2.5 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full shadow-[0_0_12px_rgba(34,197,94,0.35)] transition-all duration-150 ease-out group-hover:shadow-[0_0_20px_rgba(34,197,94,0.55)] group-hover:scale-[1.02]"
+                            style={{
+                              width: `${Math.max(item.percent, 3)}%`,
+                              background: `linear-gradient(90deg, ${item.color} 0%, ${item.color}CC 50%, #22c55eAA 100%)`,
+                            }}
+                          />
+                        </div>
+                        <div className="pointer-events-none absolute -top-14 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                          <div className="rounded-lg border border-blue-500/60 bg-[#0f172a] px-3 py-2 text-[11px] text-white shadow-lg text-center whitespace-nowrap">
+                            <div className="font-semibold text-xs">{item.label}</div>
+                            <div className="mt-1 text-purple-300">
+                              {item.percent.toFixed(1)}% {formatCurrency(item.valor)}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Indicadores rapidos${titleSuffix}${refLabel}`}
-        </p>
-        <div className="mt-4 space-y-3">
-          {[
-            { label: 'Horas extras', value: formatCurrency(payrollIndicators.extras || 0) },
-            { label: 'DSR', value: formatCurrency(payrollIndicators.dsr || 0) },
-            { label: 'Atestados', value: formatCurrency(payrollIndicators.atestadosVolue || 0) },
-            { label: 'Ajuda de Custo', value: formatCurrency(payrollIndicators.ajuda || 0) },
-            { label: 'Beneficio', value: '--' },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-1"
-            >
-              <span className="text-white/70 text-xs">{item.label}</span>
-              <span className="text-emerald-300 text-lg font-semibold">
-                {isLoadingPayroll ? '...' : item.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Colaboradores por Setor${titleSuffix}${refLabel}`}
-        </p>
-        <span className="text-emerald-300 text-xs font-semibold">
-          {collaboratorSectorTotal.toLocaleString('pt-BR')}
-        </span>
-      </div>
-      <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
-        {collaboratorSectorChartData.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">
-            Sem dados para exibir.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={collaboratorSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {collaboratorSectorChartData.map((entry) => (
-                  <Cell key={entry.label} fill={entry.color} />
+                    ))}
+                  </div>
                 ))}
-                <LabelList
-                  dataKey="totalValue"
-                  position="top"
-                  formatter={formatLabelNumber}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Colaboradores ativos por Setor${titleSuffix}${refLabel}`}
-        </p>
-        <span className="text-emerald-300 text-xs font-semibold">
-          {activeCollaboratorSectorTotal.toLocaleString('pt-BR')}
-        </span>
-      </div>
-      <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
-        {activeCollaboratorSectorChartData.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">
-            Sem dados para exibir.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={activeCollaboratorSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {activeCollaboratorSectorChartData.map((entry) => (
-                  <Cell key={entry.label} fill={entry.color} />
-                ))}
-                <LabelList
-                  dataKey="totalValue"
-                  position="top"
-                  formatter={formatLabelNumber}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Aprendiz por Setor${titleSuffix}${refLabel}`}
-        </p>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-emerald-300 font-semibold">
-            {(apprenticeTotals.aprendiz + apprenticeTotals.socioDiretor).toLocaleString('pt-BR')}
-          </span>
-          <span className="flex items-center gap-2 text-white/70">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: APPRENTICE_COLOR }} />
-            Aprendiz: <span className="text-emerald-300 font-semibold">{apprenticeTotals.aprendiz.toLocaleString('pt-BR')}</span>
-          </span>
-          <span className="flex items-center gap-2 text-white/70">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SOCIO_DIRECTOR_COLOR }} />
-            Socio-Diretor: <span className="text-emerald-300 font-semibold">{apprenticeTotals.socioDiretor.toLocaleString('pt-BR')}</span>
-          </span>
-        </div>
-      </div>
-      <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
-        {apprenticeSectorChartData.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">
-            Sem dados para exibir.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={apprenticeSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              <Bar dataKey="aprendiz" name="Aprendiz" fill={APPRENTICE_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                <LabelList
-                  dataKey="aprendiz"
-                  position="top"
-                  formatter={(value: unknown) => {
-                    const numeric = Number(value)
-                    if (Number.isFinite(numeric) && numeric > 0) return formatLabelNumber(numeric)
-                    return ''
-                  }}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-              <Bar dataKey="socioDiretor" name="Socio-Diretor" fill={SOCIO_DIRECTOR_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                <LabelList
-                  dataKey="socioDiretor"
-                  position="top"
-                  formatter={(value: unknown) => {
-                    const numeric = Number(value)
-                    if (Number.isFinite(numeric) && numeric > 0) return formatLabelNumber(numeric)
-                    return ''
-                  }}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Afastamento por Tipo${titleSuffix}${refLabel}`}
-        </p>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-emerald-300 font-semibold">
-            {absenceByStatusTotal.toLocaleString('pt-BR')}
-          </span>
-          {absenceByStatusTotal > 0 ? (
-            <div className="flex items-center gap-3 text-white/70">
-              {absenceByStatusTotals.slice(0, 4).map((item) => (
-                <span key={item.key} className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
-                  {item.label}:{' '}
-                  <span className="text-emerald-300 font-semibold">{item.total.toLocaleString('pt-BR')}</span>
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
-        {absenceByStatusTotal === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">
-            Sem dados para exibir.
-          </div>
-        ) : monthFilter === '' ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={absenceByStatusAnnualSeries.data} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              {absenceByStatusAnnualSeries.keys.map((key) => (
-                <Bar key={key.key} dataKey={key.key} name={key.label} fill={key.color} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                  <LabelList
-                    dataKey={key.key}
-                    position="top"
-                    formatter={formatLabelNumber}
-                    fill="#FFFFFF"
-                    fontSize={12}
-                  />
-                </Bar>
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={absenceByStatusChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={<SectorTick />}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-              <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {absenceByStatusChartData.map((entry) => (
-                  <Cell key={entry.label} fill={entry.color} />
-                ))}
-                <LabelList
-                  dataKey="totalValue"
-                  position="top"
-                  formatter={formatLabelNumber}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Admissao e Demissao por setor${titleSuffix}${refLabel}`}
-        </p>
-        <div className="flex items-center gap-4 text-xs font-semibold">
-          <span className="flex items-center gap-1 text-emerald-300">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: ADMISSION_COLOR }} />
-            Admissao: {turnoverCounts.admissions.toLocaleString('pt-BR')}
-          </span>
-          <span className="flex items-center gap-1 text-rose-300">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: DISMISSAL_COLOR }} />
-            Demissao: {turnoverCounts.dismissals.toLocaleString('pt-BR')}
-          </span>
-        </div>
-      </div>
-      <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={turnoverSectorChartData} barGap={0} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-            <XAxis
-              dataKey="label"
-              interval={0}
-              height={80}
-              tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
-              axisLine={{ stroke: '#475569' }}
-            />
-            <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-            <RechartsTooltip content={turnoverTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-            <Bar dataKey="admissions" name="Admissao" fill={ADMISSION_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-              <LabelList
-                dataKey="admissions"
-                position="top"
-                formatter={formatPositiveLabelNumber}
-                fill="#FFFFFF"
-                fontSize={12}
-              />
-            </Bar>
-            <Bar dataKey="dismissals" name="Demissao" fill={DISMISSAL_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-              <LabelList
-                dataKey="dismissals"
-                position="top"
-                formatter={formatPositiveLabelNumber}
-                fill="#FFFFFF"
-                fontSize={12}
-              />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Absenteísmo por Setor${titleSuffix}${refLabel}`}
-        </p>
-      </div>
-      <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
-        {isLoadingPayroll ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">Carregando...</div>
-        ) : absenteeismSectorChartData.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">
-            Sem dados para exibir.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={absenteeismSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis
-                tickFormatter={(tick) => `${tick.toFixed(1)}%`}
-                tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
-                axisLine={{ stroke: '#475569' }}
-                domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
-                tickCount={6}
-              />
-              <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              <Bar dataKey="value" name="Absenteísmo" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {absenteeismSectorChartData.map((entry) => (
-                  <Cell key={entry.label} fill={entry.color} />
-                ))}
-                <LabelList
-                  dataKey="value"
-                  position="top"
-                  formatter={(value: unknown) => {
-                    const numeric = Number(value)
-                    if (Number.isFinite(numeric) && numeric > 0) {
-                      return `${numeric.toFixed(1)}%`
-                    }
-                    return ''
-                  }}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-
-    <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-          {`Turnover por Setor${titleSuffix}${refLabel}`}
-        </p>
-      </div>
-      <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
-        {turnoverSectorPercentChartData.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-white/50 text-sm">
-            Sem dados para exibir.
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={turnoverSectorPercentChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                height={80}
-                tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
-                axisLine={{ stroke: '#475569' }}
-              />
-              <YAxis
-                tickFormatter={(tick) => `${tick.toFixed(1)}%`}
-                tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
-                axisLine={{ stroke: '#475569' }}
-                domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
-                tickCount={6}
-              />
-              <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-              <Bar dataKey="value" name="Turnover" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {turnoverSectorPercentChartData.map((entry) => (
-                  <Cell key={entry.label} fill={entry.color} />
-                ))}
-                <LabelList
-                  dataKey="value"
-                  position="top"
-                  formatter={(value: unknown) => {
-                    const numeric = Number(value)
-                    if (Number.isFinite(numeric) && numeric > 0) {
-                      return `${numeric.toFixed(1)}%`
-                    }
-                    return ''
-                  }}
-                  fill="#FFFFFF"
-                  fontSize={12}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-
-    <div className="grid gap-4 xl:grid-cols-2">
-      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
-        <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-            {`Colaboradores por Gênero${titleSuffix}${refLabel}`}
-          </p>
-          <span className="text-emerald-300 text-xs font-semibold">
-            Total: {closingRegistrations.size.toLocaleString('pt-BR')}
-          </span>
-        </div>
-      <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
-          {genderChartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
-          ) : (
-            <div className="relative h-full">
-              {/* hover state do pie */}
-              {/**/}
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <RechartsTooltip content={genderTooltip} />
-              <Pie
-                data={genderChartData}
-                dataKey="value"
-                nameKey="label"
-                cx="50%"
-                cy="50%"
-                outerRadius={120}
-                innerRadius={75}
-                paddingAngle={4}
-                label={(entry) => `${(entry.percent ?? 0).toFixed(1)}%`}
-                isAnimationActive={false}
-                  >
-                    {genderChartData.map((entry, idx) => {
-                      const isActive = idx === pieActiveIndex
-                      return (
-                        <Cell
-                          key={entry.label}
-                          fill={entry.color}
-                          stroke={entry.color}
-                          strokeWidth={isActive ? 4 : 0.8}
-                          onMouseEnter={() => setPieActiveIndex(idx)}
-                          onMouseLeave={() => setPieActiveIndex(-1)}
-                          transform={isActive ? 'scale(1.03)' : undefined}
-                          style={{ transition: 'transform 120ms ease, stroke-width 120ms ease' }}
-                        />
-                      )
-                    })}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-x-0 bottom-2 flex items-center justify-center gap-4 text-xs font-semibold text-white">
-                <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-white/10 shadow-sm">
-                  <Mars className="h-4 w-4 text-emerald-300" />
-                  <span>Masculino</span>
-                  <span className="text-white/60">
-                    {`(${genderChartData.find((g) => g.label === 'Masculino')?.percent.toFixed(1) ?? '0.0'}%)`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-white/10 shadow-sm">
-                  <Venus className="h-4 w-4 text-rose-300" />
-                  <span>Feminino</span>
-                  <span className="text-white/60">
-                    {`(${genderChartData.find((g) => g.label === 'Feminino')?.percent.toFixed(1) ?? '0.0'}%)`}
-                  </span>
-                </div>
               </div>
             </div>
           )}
         </div>
+        <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Indicadores rapidos${titleSuffix}${refLabel}`}
+          </p>
+          <div className="mt-4 space-y-3">
+            {[
+              {
+                label: 'Horas extras',
+                value: showCardValue(payrollIndicators.extras || 0, lastCardValuesRef.current.extras, formatCurrency),
+              },
+              {
+                label: 'DSR',
+                value: showCardValue(payrollIndicators.dsr || 0, lastCardValuesRef.current.dsr, formatCurrency),
+              },
+              {
+                label: 'Atestados',
+                value: showCardValue(
+                  payrollIndicators.atestadosVolue || 0,
+                  lastCardValuesRef.current.atestadosVolue,
+                  formatCurrency
+                ),
+              },
+              {
+                label: 'Ajuda de Custo',
+                value: showCardValue(payrollIndicators.ajuda || 0, lastCardValuesRef.current.ajuda, formatCurrency),
+              },
+              { label: 'Beneficio', value: '--' },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-1"
+              >
+                <span className="text-white/70 text-xs">{item.label}</span>
+                <span className="text-emerald-300 text-lg font-semibold">
+                  {item.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
         <div className="flex items-center justify-between">
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
-            {`Tempo de Empresa${titleSuffix}${refLabel}`}
+            {`Colaboradores por Setor${titleSuffix}${refLabel}`}
           </p>
           <span className="text-emerald-300 text-xs font-semibold">
-            Total: {closingRegistrations.size.toLocaleString('pt-BR')}
+            {collaboratorSectorTotal.toLocaleString('pt-BR')}
           </span>
         </div>
-        <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
-          {tenureChartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+        <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
+          {collaboratorSectorChartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">
+              Sem dados para exibir.
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={tenureChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+              <BarChart data={collaboratorSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                <XAxis dataKey="label" interval={0} tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
+                  axisLine={{ stroke: '#475569' }}
+                />
                 <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
-                <RechartsTooltip content={tenureTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
-                <Bar dataKey="value" name="Colaboradores" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                  {tenureChartData.map((entry) => (
+                <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  {collaboratorSectorChartData.map((entry) => (
                     <Cell key={entry.label} fill={entry.color} />
                   ))}
                   <LabelList
-                    dataKey="value"
+                    dataKey="totalValue"
                     position="top"
-                    formatter={formatPositiveLabelNumber}
+                    formatter={formatLabelNumber}
                     fill="#FFFFFF"
                     fontSize={12}
                   />
@@ -2228,9 +1897,477 @@ const PayrollMonthlyPanel: React.FC<PayrollMonthlyPanelProps> = ({ supabaseKey, 
           )}
         </div>
       </div>
+
+      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Colaboradores ativos por Setor${titleSuffix}${refLabel}`}
+          </p>
+          <span className="text-emerald-300 text-xs font-semibold">
+            {activeCollaboratorSectorTotal.toLocaleString('pt-BR')}
+          </span>
+        </div>
+        <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
+          {activeCollaboratorSectorChartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">
+              Sem dados para exibir.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={activeCollaboratorSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
+                  axisLine={{ stroke: '#475569' }}
+                />
+                <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  {activeCollaboratorSectorChartData.map((entry) => (
+                    <Cell key={entry.label} fill={entry.color} />
+                  ))}
+                  <LabelList
+                    dataKey="totalValue"
+                    position="top"
+                    formatter={formatLabelNumber}
+                    fill="#FFFFFF"
+                    fontSize={12}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Aprendiz por Setor${titleSuffix}${refLabel}`}
+          </p>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-emerald-300 font-semibold">
+              {(apprenticeTotals.aprendiz + apprenticeTotals.socioDiretor).toLocaleString('pt-BR')}
+            </span>
+            <span className="flex items-center gap-2 text-white/70">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: APPRENTICE_COLOR }} />
+              Aprendiz: <span className="text-emerald-300 font-semibold">{apprenticeTotals.aprendiz.toLocaleString('pt-BR')}</span>
+            </span>
+            <span className="flex items-center gap-2 text-white/70">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SOCIO_DIRECTOR_COLOR }} />
+              Socio-Diretor: <span className="text-emerald-300 font-semibold">{apprenticeTotals.socioDiretor.toLocaleString('pt-BR')}</span>
+            </span>
+          </div>
+        </div>
+        <div className="mt-3 h-[360px] rounded-lg border border-white/10 bg-white/5 chart-container">
+          {apprenticeSectorChartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">
+              Sem dados para exibir.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={apprenticeSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
+                  axisLine={{ stroke: '#475569' }}
+                />
+                <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar dataKey="aprendiz" name="Aprendiz" fill={APPRENTICE_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  <LabelList
+                    dataKey="aprendiz"
+                    position="top"
+                    formatter={(value: unknown) => {
+                      const numeric = Number(value)
+                      if (Number.isFinite(numeric) && numeric > 0) return formatLabelNumber(numeric)
+                      return ''
+                    }}
+                    fill="#FFFFFF"
+                    fontSize={12}
+                  />
+                </Bar>
+                <Bar dataKey="socioDiretor" name="Socio-Diretor" fill={SOCIO_DIRECTOR_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  <LabelList
+                    dataKey="socioDiretor"
+                    position="top"
+                    formatter={(value: unknown) => {
+                      const numeric = Number(value)
+                      if (Number.isFinite(numeric) && numeric > 0) return formatLabelNumber(numeric)
+                      return ''
+                    }}
+                    fill="#FFFFFF"
+                    fontSize={12}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Afastamento por Tipo${titleSuffix}${refLabel}`}
+          </p>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-emerald-300 font-semibold">
+              {absenceByStatusTotal.toLocaleString('pt-BR')}
+            </span>
+            {absenceByStatusTotal > 0 ? (
+              <div className="flex items-center gap-3 text-white/70">
+                {absenceByStatusTotals.slice(0, 4).map((item) => (
+                  <span key={item.key} className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                    {item.label}:{' '}
+                    <span className="text-emerald-300 font-semibold">{item.total.toLocaleString('pt-BR')}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+          {absenceByStatusTotal === 0 ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">
+              Sem dados para exibir.
+            </div>
+          ) : monthFilter === '' ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={absenceByStatusAnnualSeries.data} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
+                  axisLine={{ stroke: '#475569' }}
+                />
+                <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                <RechartsTooltip content={apprenticeTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                {absenceByStatusAnnualSeries.keys.map((key) => (
+                  <Bar key={key.key} dataKey={key.key} name={key.label} fill={key.color} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                    <LabelList
+                      dataKey={key.key}
+                      position="top"
+                      formatter={formatLabelNumber}
+                      fill="#FFFFFF"
+                      fontSize={12}
+                    />
+                  </Bar>
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={absenceByStatusChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={<SectorTick />}
+                  axisLine={{ stroke: '#475569' }}
+                />
+                <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                <RechartsTooltip content={countTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar dataKey="totalValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  {absenceByStatusChartData.map((entry) => (
+                    <Cell key={entry.label} fill={entry.color} />
+                  ))}
+                  <LabelList
+                    dataKey="totalValue"
+                    position="top"
+                    formatter={formatLabelNumber}
+                    fill="#FFFFFF"
+                    fontSize={12}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Admissao e Demissao por setor${titleSuffix}${refLabel}`}
+          </p>
+          <div className="flex items-center gap-4 text-xs font-semibold">
+            <span className="flex items-center gap-1 text-emerald-300">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: ADMISSION_COLOR }} />
+              Admissao: {turnoverCounts.admissions.toLocaleString('pt-BR')}
+            </span>
+            <span className="flex items-center gap-1 text-rose-300">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: DISMISSAL_COLOR }} />
+              Demissao: {turnoverCounts.dismissals.toLocaleString('pt-BR')}
+            </span>
+          </div>
+        </div>
+        <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={turnoverSectorChartData} barGap={0} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+              <XAxis
+                dataKey="label"
+                interval={0}
+                height={80}
+                tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
+                axisLine={{ stroke: '#475569' }}
+              />
+              <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+              <RechartsTooltip content={turnoverTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+              <Bar dataKey="admissions" name="Admissao" fill={ADMISSION_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                <LabelList
+                  dataKey="admissions"
+                  position="top"
+                  formatter={formatPositiveLabelNumber}
+                  fill="#FFFFFF"
+                  fontSize={12}
+                />
+              </Bar>
+              <Bar dataKey="dismissals" name="Demissao" fill={DISMISSAL_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                <LabelList
+                  dataKey="dismissals"
+                  position="top"
+                  formatter={formatPositiveLabelNumber}
+                  fill="#FFFFFF"
+                  fontSize={12}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Absenteísmo por Setor${titleSuffix}${refLabel}`}
+          </p>
+        </div>
+        <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+          {isLoadingPayroll ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">Carregando...</div>
+          ) : absenteeismSectorChartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">
+              Sem dados para exibir.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={absenteeismSectorChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
+                  axisLine={{ stroke: '#475569' }}
+                />
+                <YAxis
+                  tickFormatter={(tick) => `${tick.toFixed(1)}%`}
+                  tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
+                  axisLine={{ stroke: '#475569' }}
+                  domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
+                  tickCount={6}
+                />
+                <RechartsTooltip content={absenteeismTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar dataKey="value" name="Absenteísmo" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  {absenteeismSectorChartData.map((entry) => (
+                    <Cell key={entry.label} fill={entry.color} />
+                  ))}
+                  <LabelList
+                    dataKey="value"
+                    position="top"
+                    formatter={(value: unknown) => {
+                      const numeric = Number(value)
+                      if (Number.isFinite(numeric) && numeric > 0) {
+                        return `${numeric.toFixed(1)}%`
+                      }
+                      return ''
+                    }}
+                    fill="#FFFFFF"
+                    fontSize={12}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+            {`Turnover por Setor${titleSuffix}${refLabel}`}
+          </p>
+        </div>
+        <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+          {turnoverSectorPercentChartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-white/50 text-sm">
+              Sem dados para exibir.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={turnoverSectorPercentChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                <XAxis
+                  dataKey="label"
+                  interval={0}
+                  height={80}
+                  tick={monthFilter === '' ? { fill: '#9aa4b3ff', fontSize: 10 } : <SectorTick />}
+                  axisLine={{ stroke: '#475569' }}
+                />
+                <YAxis
+                  tickFormatter={(tick) => `${tick.toFixed(1)}%`}
+                  tick={{ fill: '#9aa4b3ff', fontSize: 10 }}
+                  axisLine={{ stroke: '#475569' }}
+                  domain={[0, (dataMax: number) => Math.max(2, Math.ceil(dataMax * 2) / 2)]}
+                  tickCount={6}
+                />
+                <RechartsTooltip content={turnoverPercentTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                <Bar dataKey="value" name="Turnover" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                  {turnoverSectorPercentChartData.map((entry) => (
+                    <Cell key={entry.label} fill={entry.color} />
+                  ))}
+                  <LabelList
+                    dataKey="value"
+                    position="top"
+                    formatter={(value: unknown) => {
+                      const numeric = Number(value)
+                      if (Number.isFinite(numeric) && numeric > 0) {
+                        return `${numeric.toFixed(1)}%`
+                      }
+                      return ''
+                    }}
+                    fill="#FFFFFF"
+                    fontSize={12}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Colaboradores por Gênero${titleSuffix}${refLabel}`}
+            </p>
+            <span className="text-emerald-300 text-xs font-semibold">
+              Total: {closingRegistrations.size.toLocaleString('pt-BR')}
+            </span>
+          </div>
+          <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+            {genderChartData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+            ) : (
+              <div className="relative h-full">
+                {/* hover state do pie */}
+                {/**/}
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <RechartsTooltip content={genderTooltip} />
+                    <Pie
+                      data={genderChartData}
+                      dataKey="value"
+                      nameKey="label"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={120}
+                      innerRadius={75}
+                      paddingAngle={4}
+                      label={(entry) => `${(entry.percent ?? 0).toFixed(1)}%`}
+                      isAnimationActive={false}
+                    >
+                      {genderChartData.map((entry, idx) => {
+                        const isActive = idx === pieActiveIndex
+                        return (
+                          <Cell
+                            key={entry.label}
+                            fill={entry.color}
+                            stroke={entry.color}
+                            strokeWidth={isActive ? 4 : 0.8}
+                            onMouseEnter={() => setPieActiveIndex(idx)}
+                            onMouseLeave={() => setPieActiveIndex(-1)}
+                            transform={isActive ? 'scale(1.03)' : undefined}
+                            style={{ transition: 'transform 120ms ease, stroke-width 120ms ease' }}
+                          />
+                        )
+                      })}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-x-0 bottom-2 flex items-center justify-center gap-4 text-xs font-semibold text-white">
+                  <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-white/10 shadow-sm">
+                    <Mars className="h-4 w-4 text-emerald-300" />
+                    <span>Masculino</span>
+                    <span className="text-white/60">
+                      {`(${genderChartData.find((g) => g.label === 'Masculino')?.percent.toFixed(1) ?? '0.0'}%)`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 px-2 py-1 rounded-md border border-white/10 shadow-sm">
+                    <Venus className="h-4 w-4 text-rose-300" />
+                    <span>Feminino</span>
+                    <span className="text-white/60">
+                      {`(${genderChartData.find((g) => g.label === 'Feminino')?.percent.toFixed(1) ?? '0.0'}%)`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-blue-900/30 border border-blue-500/40 rounded-xl p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/50">
+              {`Tempo de Empresa${titleSuffix}${refLabel}`}
+            </p>
+            <span className="text-emerald-300 text-xs font-semibold">
+              Total: {closingRegistrations.size.toLocaleString('pt-BR')}
+            </span>
+          </div>
+          <div className="mt-3 h-80 rounded-lg border border-white/10 bg-white/5 chart-container">
+            {tenureChartData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-white/50 text-sm">Sem dados para exibir.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={tenureChartData} margin={{ top: 20, right: 16, left: 0, bottom: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
+                  <XAxis dataKey="label" interval={0} tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} />
+                  <YAxis tick={{ fill: '#9aa4b3ff', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickCount={8} />
+                  <RechartsTooltip content={tenureTooltip} cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }} />
+                  <Bar dataKey="value" name="Colaboradores" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                    {tenureChartData.map((entry) => (
+                      <Cell key={entry.label} fill={entry.color} />
+                    ))}
+                    <LabelList
+                      dataKey="value"
+                      position="top"
+                      formatter={formatPositiveLabelNumber}
+                      fill="#FFFFFF"
+                      fontSize={12}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
-)
+  )
 
 }
 
